@@ -4,7 +4,10 @@ import { google } from "googleapis";
 
 function requiredEnv(name: string) {
   const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
+  if (!v) {
+    console.error(`[v0] Missing required environment variable: ${name}`);
+    throw new Error(`Configuracion incompleta: falta ${name}`);
+  }
   return v;
 }
 
@@ -26,9 +29,23 @@ async function getSheetsClient() {
   const clientEmail = requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
   const privateKeyRaw = requiredEnv("GOOGLE_PRIVATE_KEY");
 
-  // ✅ clave: convertir \n a saltos reales
-  const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
+  // Convertir \n literales a saltos de linea reales
+  // Tambien manejar el caso donde la clave venga con comillas
+  let privateKey = privateKeyRaw
+    .replace(/\\n/g, "\n")
+    .replace(/^["']|["']$/g, ""); // Quitar comillas si existen
+  
+  // Si la clave no tiene el formato correcto, intentar decodificarla de base64
+  if (!privateKey.includes("-----BEGIN PRIVATE KEY-----")) {
+    try {
+      privateKey = Buffer.from(privateKey, "base64").toString("utf-8");
+    } catch {
+      // Si falla, usar la clave tal cual
+    }
+  }
 
+  console.log("[v0] Private key starts with:", privateKey.substring(0, 50));
+  
   const auth = new google.auth.JWT({
     email: clientEmail,
     key: privateKey,
@@ -40,8 +57,11 @@ async function getSheetsClient() {
 }
 
 export async function POST(req: Request) {
+  console.log("[v0] POST /api/orders - Starting");
+  
   try {
     const body = await req.json();
+    console.log("[v0] Request body received:", JSON.stringify(body));
 
     const {
       plan_id,
@@ -90,9 +110,11 @@ export async function POST(req: Request) {
     const status = "pending_payment";
     const payment_status = "unconfirmed";
 
+    console.log("[v0] Getting Google Sheets client...");
     const { sheets, spreadsheetId } = await getSheetsClient();
+    console.log("[v0] Connected to spreadsheet:", spreadsheetId);
 
-    // ⚠️ La pestaña debe llamarse EXACTAMENTE "orders"
+    // La pestana debe llamarse EXACTAMENTE "orders"
     const range = "orders!A:O";
 
     const row = [
