@@ -133,17 +133,17 @@ export default function BriefPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          order_id: orderId,
-          business_name: formData.businessName,
-          business_type: formData.businessType,
-          target_audience: formData.targetAudience,
+          orderId: orderId,
+          businessName: formData.businessName,
+          businessType: formData.businessType,
+          targetAudience: formData.targetAudience,
           colors: formData.colors,
           style: formData.style,
           pages: formData.pages,
           features: formData.features,
           content: formData.content,
           competitors: formData.competitors,
-          additional_notes: formData.additionalNotes,
+          additionalNotes: formData.additionalNotes,
         }),
       });
 
