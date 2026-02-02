@@ -16,16 +16,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import type { Order, Brief } from "@/lib/types";
 import { Check, ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 
 const pageOptions = [
   { id: "inicio", label: "Inicio / Home" },
   { id: "nosotros", label: "Nosotros / Quienes Somos" },
   { id: "servicios", label: "Servicios" },
-  { id: "productos", label: "Productos / Catalogo" },
+  { id: "productos", label: "Productos / Catálogo" },
   { id: "portafolio", label: "Portafolio / Proyectos" },
   { id: "blog", label: "Blog / Noticias" },
   { id: "contacto", label: "Contacto" },
@@ -34,12 +39,12 @@ const pageOptions = [
 ];
 
 const featureOptions = [
-  { id: "whatsapp", label: "Boton de WhatsApp" },
+  { id: "whatsapp", label: "Botón de WhatsApp" },
   { id: "formulario", label: "Formulario de contacto" },
-  { id: "galeria", label: "Galeria de imagenes" },
-  { id: "mapa", label: "Mapa de ubicacion" },
+  { id: "galeria", label: "Galería de imágenes" },
+  { id: "mapa", label: "Mapa de ubicación" },
   { id: "redes", label: "Links a redes sociales" },
-  { id: "newsletter", label: "Suscripcion a newsletter" },
+  { id: "newsletter", label: "Suscripción a newsletter" },
   { id: "chat", label: "Chat en vivo" },
   { id: "reservas", label: "Sistema de reservas/citas" },
 ];
@@ -47,10 +52,10 @@ const featureOptions = [
 const styleOptions = [
   { value: "minimalista", label: "Minimalista y limpio" },
   { value: "corporativo", label: "Corporativo y profesional" },
-  { value: "moderno", label: "Moderno y dinamico" },
+  { value: "moderno", label: "Moderno y dinámico" },
   { value: "elegante", label: "Elegante y sofisticado" },
   { value: "juvenil", label: "Juvenil y colorido" },
-  { value: "clasico", label: "Clasico y tradicional" },
+  { value: "clasico", label: "Clásico y tradicional" },
 ];
 
 export default function BriefPage({
@@ -60,48 +65,38 @@ export default function BriefPage({
 }) {
   const { orderId } = use(params);
   const router = useRouter();
-  const [order, setOrder] = useState<Order | null>(null);
+
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState<Omit<Brief, "orderId" | "submittedAt">>({
+  const [formData, setFormData] = useState({
     businessName: "",
     businessType: "",
     targetAudience: "",
     competitors: "",
     colors: "",
     style: "",
-    pages: [],
-    features: [],
+    pages: [] as string[],
+    features: [] as string[],
     content: "",
     additionalNotes: "",
   });
 
+  // ✅ Si ya existe brief en Sheets, marca como submitted y no lo vuelve a enviar
   useEffect(() => {
-    async function fetchData() {
+    const check = async () => {
       try {
-        // Fetch order
-        const orderRes = await fetch(`/api/orders?id=${orderId}`);
-        const orderData = await orderRes.json();
-        
-        if (orderData.ok && orderData.orders.length > 0) {
-          setOrder(orderData.orders[0]);
-          
-          // Check if brief already exists
-          const briefRes = await fetch(`/api/brief?order_id=${orderId}`);
-          const briefData = await briefRes.json();
-          
-          if (briefData.ok && briefData.brief) {
-            setSubmitted(true);
-          }
+        const res = await fetch(`/api/brief/${orderId}`, { cache: "no-store" });
+        if (res.ok) {
+          setSubmitted(true);
         }
-      } catch (error) {
-        console.error("Error fetching data:", error);
+      } catch {
+        // no pasa nada, simplemente no existe aún
       }
-    }
-    
-    fetchData();
+    };
+    check();
   }, [orderId]);
 
   const totalSteps = 4;
@@ -127,60 +122,50 @@ export default function BriefPage({
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    
+    setLoadError(null);
+
     try {
-      const response = await fetch("/api/brief", {
+      const payload = {
+        orderId,
+        businessName: formData.businessName,
+        businessType: formData.businessType,
+        targetAudience: formData.targetAudience,
+        competitors: formData.competitors,
+        colors: formData.colors,
+        style: formData.style,
+        pages: formData.pages,
+        features: formData.features,
+        content: formData.content,
+        additionalNotes: formData.additionalNotes,
+      };
+
+      const res = await fetch("/api/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: orderId,
-          businessName: formData.businessName,
-          businessType: formData.businessType,
-          targetAudience: formData.targetAudience,
-          colors: formData.colors,
-          style: formData.style,
-          pages: formData.pages,
-          features: formData.features,
-          content: formData.content,
-          competitors: formData.competitors,
-          additionalNotes: formData.additionalNotes,
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data = await res.json().catch(() => ({}));
 
-      if (!response.ok || !data.ok) {
-        throw new Error(data.error || "Error al enviar el brief");
+      if (!res.ok || !data?.ok) {
+        console.error("POST /api/brief error:", data);
+        const msg = data?.error || `Error ${res.status} enviando brief`;
+        setLoadError(msg);
+        alert(`Error al enviar el brief: ${msg}`);
+        setIsSubmitting(false);
+        return;
       }
 
       setIsSubmitting(false);
       setSubmitted(true);
-    } catch (error) {
-      console.error("Error submitting brief:", error);
+    } catch (e: any) {
+      console.error(e);
+      const msg = e?.message || "Error inesperado";
+      setLoadError(msg);
+      alert(`Error al enviar el brief: ${msg}`);
       setIsSubmitting(false);
-      alert("Error al enviar el brief. Por favor intenta de nuevo.");
     }
   };
-
-  if (!order) {
-    return (
-      <div className="flex min-h-screen flex-col">
-        <Header />
-        <main className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold">Orden no encontrada</h1>
-            <p className="mt-2 text-muted-foreground">
-              Verifica que tengas el enlace correcto.
-            </p>
-            <Button className="mt-4" onClick={() => router.push("/")}>
-              Ir al Inicio
-            </Button>
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
 
   if (submitted) {
     return (
@@ -193,14 +178,11 @@ export default function BriefPage({
                 <Check className="h-8 w-8" />
               </div>
               <h2 className="mt-6 text-2xl font-bold text-foreground">
-                Brief Completado!
+                ¡Brief completado!
               </h2>
               <p className="mt-2 text-muted-foreground">
-                Gracias por completar el brief. Nuestro equipo revisara la
-                informacion y comenzara a trabajar en tu proyecto.
-              </p>
-              <p className="mt-4 text-sm text-muted-foreground">
-                Te contactaremos pronto para mostrarte los primeros avances.
+                Gracias por completar el brief. Nuestro equipo revisará la
+                información y continuará el proceso.
               </p>
               <Button className="mt-6" onClick={() => router.push("/panel")}>
                 Ir a Mi Panel
@@ -216,6 +198,7 @@ export default function BriefPage({
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
+
       <main className="flex-1 bg-background py-12">
         <div className="mx-auto max-w-2xl px-4">
           <div className="mb-8">
@@ -228,6 +211,12 @@ export default function BriefPage({
               </span>
             </div>
             <Progress value={progress} className="h-2" />
+
+            {loadError && (
+              <p className="mt-3 text-sm text-red-600">
+                Error: {loadError}
+              </p>
+            )}
           </div>
 
           <Card>
@@ -235,15 +224,15 @@ export default function BriefPage({
               <CardTitle>
                 {step === 1 && "Sobre tu Negocio"}
                 {step === 2 && "Estilo y Preferencias"}
-                {step === 3 && "Estructura de la Pagina"}
+                {step === 3 && "Estructura de la Página"}
                 {step === 4 && "Contenido y Notas"}
               </CardTitle>
               <CardDescription>
                 {step === 1 &&
-                  "Cuentanos sobre tu negocio para entender mejor tus necesidades."}
+                  "Cuéntanos sobre tu negocio para entender mejor tus necesidades."}
                 {step === 2 &&
-                  "Define el estilo visual que quieres para tu pagina."}
-                {step === 3 && "Selecciona las paginas y funciones que necesitas."}
+                  "Define el estilo visual que quieres para tu página."}
+                {step === 3 && "Selecciona las páginas y funciones que necesitas."}
                 {step === 4 &&
                   "Agrega contenido adicional o instrucciones especiales."}
               </CardDescription>
@@ -279,18 +268,13 @@ export default function BriefPage({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="targetAudience">
-                      Quien es tu cliente ideal?
-                    </Label>
+                    <Label htmlFor="targetAudience">¿Quién es tu cliente ideal?</Label>
                     <Textarea
                       id="targetAudience"
-                      placeholder="Ej: Familias de estrato 3-5 en Bogota que buscan almorzar los fines de semana..."
+                      placeholder="Ej: Familias en Bogotá que buscan..."
                       value={formData.targetAudience}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          targetAudience: e.target.value,
-                        })
+                        setFormData({ ...formData, targetAudience: e.target.value })
                       }
                       rows={3}
                     />
@@ -298,11 +282,11 @@ export default function BriefPage({
 
                   <div className="space-y-2">
                     <Label htmlFor="competitors">
-                      Conoces competidores o paginas similares? (opcional)
+                      Competidores o páginas similares (opcional)
                     </Label>
                     <Textarea
                       id="competitors"
-                      placeholder="Ej: www.restauranteejemplo.com - me gusta su menu digital..."
+                      placeholder="Ej: www.ejemplo.com - me gusta su..."
                       value={formData.competitors}
                       onChange={(e) =>
                         setFormData({ ...formData, competitors: e.target.value })
@@ -316,20 +300,15 @@ export default function BriefPage({
               {step === 2 && (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="colors">
-                      Colores de tu marca o preferidos
-                    </Label>
+                    <Label htmlFor="colors">Colores de tu marca</Label>
                     <Input
                       id="colors"
-                      placeholder="Ej: Azul oscuro, dorado, blanco"
+                      placeholder="Ej: Azul, blanco, dorado"
                       value={formData.colors}
                       onChange={(e) =>
                         setFormData({ ...formData, colors: e.target.value })
                       }
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Si tienes logo, usaremos sus colores como base.
-                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -344,9 +323,9 @@ export default function BriefPage({
                         <SelectValue placeholder="Selecciona un estilo" />
                       </SelectTrigger>
                       <SelectContent>
-                        {styleOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
+                        {styleOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -361,9 +340,7 @@ export default function BriefPage({
                           Tip: Comparte ejemplos
                         </p>
                         <p className="text-sm text-muted-foreground mt-1">
-                          Si hay paginas web que te gustan (no tienen que ser de
-                          tu industria), compartelas en las notas finales. Nos
-                          ayuda mucho a entender tu vision.
+                          Si hay páginas web que te gustan, escríbelas en las notas.
                         </p>
                       </div>
                     </div>
@@ -374,7 +351,7 @@ export default function BriefPage({
               {step === 3 && (
                 <>
                   <div className="space-y-3">
-                    <Label>Que paginas necesitas?</Label>
+                    <Label>¿Qué páginas necesitas?</Label>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {pageOptions.map((page) => (
                         <label
@@ -409,9 +386,7 @@ export default function BriefPage({
                         >
                           <Checkbox
                             checked={formData.features.includes(feature.id)}
-                            onCheckedChange={() =>
-                              handleFeatureToggle(feature.id)
-                            }
+                            onCheckedChange={() => handleFeatureToggle(feature.id)}
                           />
                           <span className="text-sm">{feature.label}</span>
                         </label>
@@ -425,11 +400,11 @@ export default function BriefPage({
                 <>
                   <div className="space-y-2">
                     <Label htmlFor="content">
-                      Tienes contenido listo? (textos, fotos, logo)
+                      ¿Tienes contenido listo? (textos, fotos, logo)
                     </Label>
                     <Textarea
                       id="content"
-                      placeholder="Ej: Tengo fotos del local y productos. El logo esta en formato PNG. Los textos los necesito que me ayuden a escribirlos..."
+                      placeholder="Ej: Tengo fotos, logo y textos..."
                       value={formData.content}
                       onChange={(e) =>
                         setFormData({ ...formData, content: e.target.value })
@@ -439,18 +414,13 @@ export default function BriefPage({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="additionalNotes">
-                      Notas adicionales o instrucciones especiales
-                    </Label>
+                    <Label htmlFor="additionalNotes">Notas adicionales</Label>
                     <Textarea
                       id="additionalNotes"
-                      placeholder="Cualquier otra cosa que debamos saber sobre tu proyecto..."
+                      placeholder="Cualquier instrucción especial..."
                       value={formData.additionalNotes}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          additionalNotes: e.target.value,
-                        })
+                        setFormData({ ...formData, additionalNotes: e.target.value })
                       }
                       rows={4}
                     />
@@ -458,9 +428,8 @@ export default function BriefPage({
 
                   <div className="rounded-xl bg-accent/10 border border-accent/20 p-4">
                     <p className="text-sm text-foreground">
-                      Despues de enviar este brief, te contactaremos por WhatsApp
-                      o email para coordinar el envio de archivos (logo, fotos,
-                      etc.)
+                      Después de enviar este brief, te contactaremos por WhatsApp o
+                      email para coordinar el envío de archivos.
                     </p>
                   </div>
                 </>
@@ -472,6 +441,7 @@ export default function BriefPage({
                     variant="outline"
                     onClick={() => setStep(step - 1)}
                     className="flex-1"
+                    disabled={isSubmitting}
                   >
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Anterior
@@ -479,7 +449,7 @@ export default function BriefPage({
                 )}
 
                 {step < totalSteps ? (
-                  <Button onClick={() => setStep(step + 1)} className="flex-1">
+                  <Button onClick={() => setStep(step + 1)} className="flex-1" disabled={isSubmitting}>
                     Siguiente
                     <ArrowRight className="h-4 w-4 ml-2" />
                   </Button>
@@ -497,6 +467,7 @@ export default function BriefPage({
           </Card>
         </div>
       </main>
+
       <Footer />
     </div>
   );

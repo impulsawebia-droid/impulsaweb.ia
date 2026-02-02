@@ -23,58 +23,74 @@ async function getSheetsClient() {
   return { sheets, spreadsheetId };
 }
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { orderId: string } }
-) {
+function nowISO() {
+  return new Date().toISOString();
+}
+
+export async function POST(req: Request) {
   try {
-    const { orderId } = params;
+    const body = await req.json();
+
+    const {
+      orderId,
+      businessName = "",
+      businessType = "",
+      targetAudience = "",
+      competitors = "",
+      colors = "",
+      style = "",
+      pages = [],
+      features = [],
+      content = "",
+      additionalNotes = "",
+    } = body ?? {};
+
+    if (!orderId) {
+      return NextResponse.json(
+        { ok: false, error: "orderId es requerido" },
+        { status: 400 }
+      );
+    }
+
+    const created_at = nowISO();
+
     const { sheets, spreadsheetId } = await getSheetsClient();
 
-    // Lee briefs
-    const resp = await sheets.spreadsheets.values.get({
+    // Asegúrate que la pestaña se llame EXACTAMENTE: briefs
+    // Y que tenga columnas como tu screenshot:
+    // A created_at | B order_id | C business_name | D business_type | E target_audience | F colors
+    // G pages | H features | I competitors | J style | (K content) | (L additional_notes)
+    // Si no tienes K/L, igual se van a crear columnas al append.
+    const range = "briefs!A:L";
+
+    const row = [
+      created_at,                         // A created_at
+      orderId,                            // B order_id
+      businessName,                       // C business_name
+      businessType,                       // D business_type
+      targetAudience,                     // E target_audience
+      colors,                             // F colors
+      Array.isArray(pages) ? pages.join(",") : String(pages),           // G pages
+      Array.isArray(features) ? features.join(",") : String(features), // H features
+      competitors,                        // I competitors
+      style,                              // J style
+      content,                            // K content
+      additionalNotes,                    // L additional_notes
+    ];
+
+    await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: "briefs!A:Z",
+      range,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] },
     });
 
-    const rows = resp.data.values || [];
-    if (rows.length === 0) {
-      return NextResponse.json({ ok: false, error: "No briefs" }, { status: 404 });
-    }
-
-    // si tienes headers en fila 1, saltamos
-    const headers = rows[0] || [];
-    const hasHeaders =
-      String(headers[0] || "").toLowerCase().includes("created") ||
-      String(headers[1] || "").toLowerCase().includes("order");
-
-    const dataRows = hasHeaders ? rows.slice(1) : rows;
-
-    const found = dataRows.find((r) => (r?.[1] || "").trim() === orderId);
-
-    if (!found) {
-      return NextResponse.json({ ok: false, error: "Brief not found" }, { status: 404 });
-    }
-
-    // Devuelve un objeto simple
-    const brief = {
-      created_at: found[0] || "",
-      order_id: found[1] || "",
-      business_name: found[2] || "",
-      business_type: found[3] || "",
-      target_audience: found[4] || "",
-      colors: found[5] || "",
-      pages: found[6] || "",
-      features: found[7] || "",
-      competitors: found[8] || "",
-      style: found[9] || "",
-    };
-
-    return NextResponse.json({ ok: true, brief });
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
-    console.error("GET /api/brief/[orderId] failed:", err?.message || err);
+    console.error("POST /api/brief failed:", err?.message || err, err?.stack);
+
     return NextResponse.json(
-      { ok: false, error: err?.message || "Internal error" },
+      { ok: false, error: err?.message || "Internal Server Error" },
       { status: 500 }
     );
   }
