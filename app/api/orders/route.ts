@@ -4,7 +4,10 @@ import { google } from "googleapis";
 
 function requiredEnv(name: string) {
   const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
+  if (!v) {
+    console.error(`[v0] Missing required environment variable: ${name}`);
+    throw new Error(`Configuracion incompleta: falta ${name}`);
+  }
   return v;
 }
 
@@ -40,8 +43,11 @@ async function getSheetsClient() {
 }
 
 export async function POST(req: Request) {
+  console.log("[v0] POST /api/orders - Starting");
+  
   try {
     const body = await req.json();
+    console.log("[v0] Request body received:", JSON.stringify(body));
 
     const {
       plan_id,
@@ -90,9 +96,11 @@ export async function POST(req: Request) {
     const status = "pending_payment";
     const payment_status = "unconfirmed";
 
+    console.log("[v0] Getting Google Sheets client...");
     const { sheets, spreadsheetId } = await getSheetsClient();
+    console.log("[v0] Connected to spreadsheet:", spreadsheetId);
 
-    // ⚠️ La pestaña debe llamarse EXACTAMENTE "orders"
+    // La pestana debe llamarse EXACTAMENTE "orders"
     const range = "orders!A:O";
 
     const row = [

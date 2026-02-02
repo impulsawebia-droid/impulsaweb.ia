@@ -101,24 +101,30 @@ export default function CheckoutPage({
     setIsProcessing(true);
 
     try {
+      const orderPayload = {
+        plan_id: plan.id,
+        plan_name: plan.name,
+        customer_name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        pay_method: paymentMethod,
+        pay_type: "total",
+        amount: plan.price,
+      };
+      
+      console.log("[v0] Sending order:", orderPayload);
+      
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan_id: plan.id,
-          plan_name: plan.name,
-          customer_name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          pay_method: paymentMethod,
-          pay_type: "total",
-          amount: plan.price,
-        }),
+        body: JSON.stringify(orderPayload),
       });
 
       const data = await response.json();
+      console.log("[v0] API Response:", { status: response.status, data });
 
       if (!response.ok || !data.ok) {
+        console.error("[v0] Order creation failed:", data.error);
         throw new Error(data.error || "Error al crear el pedido");
       }
 
