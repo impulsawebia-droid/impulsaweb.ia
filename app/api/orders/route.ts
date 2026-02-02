@@ -22,9 +22,9 @@ function generateOrderId() {
 }
 
 async function getSheetsClient() {
-  const spreadsheetId = requiredEnv("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const spreadsheetId = requiredEnv("GOOGLE_SHEETS_ID");
   const clientEmail = requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const privateKeyRaw = requiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
+  const privateKeyRaw = requiredEnv("GOOGLE_PRIVATE_KEY");
 
   // ✅ clave: convertir \n a saltos reales
   const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
