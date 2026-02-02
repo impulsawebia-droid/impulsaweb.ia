@@ -56,6 +56,63 @@ async function getSheetsClient() {
   return { sheets, spreadsheetId };
 }
 
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const orderId = searchParams.get("id");
+    const email = searchParams.get("email");
+
+    const { sheets, spreadsheetId } = await getSheetsClient();
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "orders!A:P",
+    });
+
+    const rows = response.data.values || [];
+    
+    // Skip header row if present (check if first cell is "created_at")
+    const dataRows = rows.length > 0 && rows[0][0] === "created_at" ? rows.slice(1) : rows;
+
+    const orders = dataRows.map((row) => ({
+      id: row[1] || "",
+      planId: row[2] || "",
+      planName: row[3] || "",
+      customerName: row[4] || "",
+      customerPhone: row[5] || "",
+      customerEmail: row[6] || "",
+      city: row[7] || "",
+      paymentMethod: row[8] || "",
+      payType: row[9] || "",
+      totalPrice: parseFloat(row[10]) || 0,
+      paymentStatus: row[11] || "pending",
+      paymentProof: row[12] || "",
+      notes: row[13] || "",
+      status: row[14] || "pending_payment",
+      briefCompleted: row[15] === "true",
+      createdAt: row[0] || "",
+      updatedAt: row[0] || "",
+    }));
+
+    // Filter by orderId or email if provided
+    let filteredOrders = orders;
+    if (orderId) {
+      filteredOrders = orders.filter((o) => o.id === orderId);
+    } else if (email) {
+      filteredOrders = orders.filter(
+        (o) => o.customerEmail.toLowerCase() === email.toLowerCase() || 
+               o.id.toLowerCase().includes(email.toLowerCase())
+      );
+    }
+
+    return NextResponse.json({ ok: true, orders: filteredOrders });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal error";
+    console.error("GET /api/orders failed:", errorMessage);
+    return NextResponse.json({ ok: false, error: errorMessage }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   console.log("[v0] POST /api/orders - Starting");
   
