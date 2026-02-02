@@ -8,14 +8,10 @@ function requiredEnv(name: string) {
 }
 
 async function getSheetsClient() {
-  const spreadsheetId = requiredEnv("GOOGLE_SHEETS_ID");
+  const spreadsheetId = requiredEnv("GOOGLE_SHEETS_SPREADSHEET_ID");
   const clientEmail = requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const privateKeyRaw = requiredEnv("GOOGLE_PRIVATE_KEY");
-  
-  // Convertir \n literales a saltos de linea reales
-  let privateKey = privateKeyRaw
-    .replace(/\\n/g, "\n")
-    .replace(/^["']|["']$/g, "");
+  const privateKeyRaw = requiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
+  const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
 
   const auth = new google.auth.JWT({
     email: clientEmail,
@@ -27,72 +23,58 @@ async function getSheetsClient() {
   return { sheets, spreadsheetId };
 }
 
-function nowISO() {
-  return new Date().toISOString();
-}
-
-export async function POST(req: Request) {
+export async function GET(
+  _req: Request,
+  { params }: { params: { orderId: string } }
+) {
   try {
-    const body = await req.json();
-
-    const {
-      orderId,
-      businessName = "",
-      businessType = "",
-      targetAudience = "",
-      competitors = "",
-      colors = "",
-      style = "",
-      pages = [],
-      features = [],
-      content = "",
-      additionalNotes = "",
-    } = body ?? {};
-
-    if (!orderId) {
-      return NextResponse.json(
-        { ok: false, error: "orderId es requerido" },
-        { status: 400 }
-      );
-    }
-
-    const submitted_at = nowISO();
-
+    const { orderId } = params;
     const { sheets, spreadsheetId } = await getSheetsClient();
 
-    // ⚠️ La pestaña debe llamarse EXACTAMENTE "briefs"
-    const range = "briefs!A:N";
-
-    const row = [
-      submitted_at,                  // A
-      orderId,                       // B
-      businessName,                  // C
-      businessType,                  // D
-      targetAudience,                // E
-      competitors,                   // F
-      colors,                        // G
-      style,                         // H
-      Array.isArray(pages) ? pages.join(",") : String(pages),           // I
-      Array.isArray(features) ? features.join(",") : String(features), // J
-      content,                       // K
-      additionalNotes,               // L
-      "submitted",                   // M status
-      submitted_at,                  // N updated_at
-    ];
-
-    await sheets.spreadsheets.values.append({
+    // Lee briefs
+    const resp = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [row] },
+      range: "briefs!A:Z",
     });
 
-    return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    console.error("POST /api/brief failed:", err?.message || err, err?.stack);
+    const rows = resp.data.values || [];
+    if (rows.length === 0) {
+      return NextResponse.json({ ok: false, error: "No briefs" }, { status: 404 });
+    }
 
+    // si tienes headers en fila 1, saltamos
+    const headers = rows[0] || [];
+    const hasHeaders =
+      String(headers[0] || "").toLowerCase().includes("created") ||
+      String(headers[1] || "").toLowerCase().includes("order");
+
+    const dataRows = hasHeaders ? rows.slice(1) : rows;
+
+    const found = dataRows.find((r) => (r?.[1] || "").trim() === orderId);
+
+    if (!found) {
+      return NextResponse.json({ ok: false, error: "Brief not found" }, { status: 404 });
+    }
+
+    // Devuelve un objeto simple
+    const brief = {
+      created_at: found[0] || "",
+      order_id: found[1] || "",
+      business_name: found[2] || "",
+      business_type: found[3] || "",
+      target_audience: found[4] || "",
+      colors: found[5] || "",
+      pages: found[6] || "",
+      features: found[7] || "",
+      competitors: found[8] || "",
+      style: found[9] || "",
+    };
+
+    return NextResponse.json({ ok: true, brief });
+  } catch (err: any) {
+    console.error("GET /api/brief/[orderId] failed:", err?.message || err);
     return NextResponse.json(
-      { ok: false, error: err?.message || "Internal Server Error" },
+      { ok: false, error: err?.message || "Internal error" },
       { status: 500 }
     );
   }

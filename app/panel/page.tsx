@@ -63,6 +63,19 @@ function OrderCard({ order }: { order: Order }) {
     month: "long",
     day: "numeric",
   });
+const [briefDone, setBriefDone] = useState(false);
+
+useEffect(() => {
+  const load = async () => {
+    try {
+      const res = await fetch(`/api/brief/${order.id}`);
+      setBriefDone(res.ok);
+    } catch {
+      setBriefDone(false);
+    }
+  };
+  load();
+}, [order.id]);
 
   return (
     <Card className="overflow-hidden">

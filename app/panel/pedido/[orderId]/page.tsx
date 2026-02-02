@@ -90,31 +90,37 @@ export default function OrderDetailPage({
   const [order, setOrder] = useState<Order | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        // Fetch order
-        const orderRes = await fetch(`/api/orders?id=${orderId}`);
-        const orderData = await orderRes.json();
-        
-        if (orderData.ok && orderData.orders.length > 0) {
-          setOrder(orderData.orders[0]);
-          
-          // Fetch brief
-          const briefRes = await fetch(`/api/brief?order_id=${orderId}`);
-          const briefData = await briefRes.json();
-          
-          if (briefData.ok && briefData.brief) {
-            setBrief(briefData.brief);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching data:", error);
+useEffect(() => {
+  const load = async () => {
+    try {
+      const res = await fetch(`/api/brief/${orderId}`);
+      const data = await res.json();
+      if (res.ok && data?.ok) {
+        setBrief({
+          orderId: data.brief.order_id,
+          businessName: data.brief.business_name,
+          businessType: data.brief.business_type,
+          targetAudience: data.brief.target_audience,
+          competitors: data.brief.competitors,
+          colors: data.brief.colors,
+          style: data.brief.style,
+          pages: String(data.brief.pages || "").split(",").filter(Boolean),
+          features: String(data.brief.features || "").split(",").filter(Boolean),
+          content: "",
+          additionalNotes: "",
+          submittedAt: data.brief.created_at,
+        } as any);
+      } else {
+        setBrief(null);
       }
+    } catch (e) {
+      console.error(e);
+      setBrief(null);
     }
-    
-    fetchData();
-  }, [orderId]);
+  };
+
+  load();
+}, [orderId]);
 
   if (!order) {
     return (
