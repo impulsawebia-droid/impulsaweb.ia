@@ -13,8 +13,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { plans } from "@/lib/data";
-import { saveOrder, generateOrderId } from "@/lib/store";
-import type { Order } from "@/lib/types";
 import {
   Check,
   CreditCard,
@@ -73,6 +71,7 @@ export default function CheckoutPage({
   });
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [orderId, setOrderId] = useState<string>("");
 
   if (!plan) {
     return (
@@ -101,32 +100,41 @@ export default function CheckoutPage({
 
     setIsProcessing(true);
 
-    // Simular procesamiento
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan_id: plan.id,
+          plan_name: plan.name,
+          customer_name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          pay_method: paymentMethod,
+          pay_type: "total",
+          amount: plan.price,
+        }),
+      });
 
-    const order: Order = {
-      id: generateOrderId(),
-      planId: plan.id,
-      planName: plan.name,
-      customerName: formData.name,
-      customerEmail: formData.email,
-      customerPhone: formData.phone,
-      status: "pending_payment",
-      paymentMethod: paymentMethod as Order["paymentMethod"],
-      briefCompleted: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      totalPrice: plan.price,
-    };
+      const data = await response.json();
 
-    saveOrder(order);
-    setIsProcessing(false);
-    setStep("confirm");
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Error al crear el pedido");
+      }
 
-    // Redirigir al brief despues de 3 segundos
-    setTimeout(() => {
-      router.push(`/brief/${order.id}`);
-    }, 3000);
+      setOrderId(data.order_id);
+      setIsProcessing(false);
+      setStep("confirm");
+
+      // Redirigir al brief despues de 3 segundos
+      setTimeout(() => {
+        router.push(`/brief/${data.order_id}`);
+      }, 3000);
+    } catch (error) {
+      console.error("Error creating order:", error);
+      setIsProcessing(false);
+      alert("Error al procesar el pedido. Por favor intenta de nuevo.");
+    }
   };
 
   const selectedPayment = paymentMethods.find((p) => p.id === paymentMethod);
