@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { getOrders, getBriefByOrderId } from "@/lib/store";
 import type { Order } from "@/lib/types";
 import {
   Package,
@@ -59,7 +58,6 @@ const statusConfig: Record<
 function OrderCard({ order }: { order: Order }) {
   const status = statusConfig[order.status];
   const StatusIcon = status.icon;
-  const brief = getBriefByOrderId(order.id);
   const createdDate = new Date(order.createdAt).toLocaleDateString("es-CO", {
     year: "numeric",
     month: "long",
@@ -100,7 +98,7 @@ function OrderCard({ order }: { order: Order }) {
 
         <div className="space-y-3">
           <p className="text-sm font-medium">Estado del Brief:</p>
-          {brief ? (
+          {order.briefCompleted ? (
             <div className="flex items-center gap-2 text-sm text-accent">
               <CheckCircle className="h-4 w-4" />
               <span>Brief completado</span>
@@ -141,31 +139,44 @@ export default function PanelPage() {
   const [hasSearched, setHasSearched] = useState(false);
 
   useEffect(() => {
-    // Load all orders initially for demo
-    const allOrders = getOrders();
-    if (allOrders.length > 0) {
-      setOrders(allOrders);
-      setHasSearched(true);
+    // Load all orders initially
+    async function fetchOrders() {
+      try {
+        const response = await fetch("/api/orders");
+        const data = await response.json();
+        if (data.ok && data.orders.length > 0) {
+          setOrders(data.orders);
+          setHasSearched(true);
+        }
+      } catch (error) {
+        console.error("Error fetching orders:", error);
+      }
     }
+    fetchOrders();
   }, []);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSearching(true);
 
-    setTimeout(() => {
-      const allOrders = getOrders();
-      const filtered = searchEmail
-        ? allOrders.filter(
-            (o) =>
-              o.customerEmail.toLowerCase() === searchEmail.toLowerCase() ||
-              o.id.toLowerCase().includes(searchEmail.toLowerCase())
-          )
-        : allOrders;
-      setOrders(filtered);
+    try {
+      const queryParam = searchEmail ? `?email=${encodeURIComponent(searchEmail)}` : "";
+      const response = await fetch(`/api/orders${queryParam}`);
+      const data = await response.json();
+      
+      if (data.ok) {
+        setOrders(data.orders);
+      } else {
+        setOrders([]);
+      }
       setHasSearched(true);
+    } catch (error) {
+      console.error("Error searching orders:", error);
+      setOrders([]);
+      setHasSearched(true);
+    } finally {
       setIsSearching(false);
-    }, 500);
+    }
   };
 
   return (

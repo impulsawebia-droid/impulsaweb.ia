@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { getOrderById, getBriefByOrderId } from "@/lib/store";
 import { plans } from "@/lib/data";
 import type { Order, Brief } from "@/lib/types";
 import {
@@ -92,14 +91,29 @@ export default function OrderDetailPage({
   const [brief, setBrief] = useState<Brief | null>(null);
 
   useEffect(() => {
-    const orderData = getOrderById(orderId);
-    if (orderData) {
-      setOrder(orderData);
-      const briefData = getBriefByOrderId(orderId);
-      if (briefData) {
-        setBrief(briefData);
+    async function fetchData() {
+      try {
+        // Fetch order
+        const orderRes = await fetch(`/api/orders?id=${orderId}`);
+        const orderData = await orderRes.json();
+        
+        if (orderData.ok && orderData.orders.length > 0) {
+          setOrder(orderData.orders[0]);
+          
+          // Fetch brief
+          const briefRes = await fetch(`/api/brief?order_id=${orderId}`);
+          const briefData = await briefRes.json();
+          
+          if (briefData.ok && briefData.brief) {
+            setBrief(briefData.brief);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
       }
     }
+    
+    fetchData();
   }, [orderId]);
 
   if (!order) {

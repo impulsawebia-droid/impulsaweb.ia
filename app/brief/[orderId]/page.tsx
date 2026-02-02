@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { getOrderById, saveBrief, getBriefByOrderId } from "@/lib/store";
 import type { Order, Brief } from "@/lib/types";
 import { Check, ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 
@@ -80,15 +79,29 @@ export default function BriefPage({
   });
 
   useEffect(() => {
-    const orderData = getOrderById(orderId);
-    if (orderData) {
-      setOrder(orderData);
-      // Check if brief already exists
-      const existingBrief = getBriefByOrderId(orderId);
-      if (existingBrief) {
-        setSubmitted(true);
+    async function fetchData() {
+      try {
+        // Fetch order
+        const orderRes = await fetch(`/api/orders?id=${orderId}`);
+        const orderData = await orderRes.json();
+        
+        if (orderData.ok && orderData.orders.length > 0) {
+          setOrder(orderData.orders[0]);
+          
+          // Check if brief already exists
+          const briefRes = await fetch(`/api/brief?order_id=${orderId}`);
+          const briefData = await briefRes.json();
+          
+          if (briefData.ok && briefData.brief) {
+            setSubmitted(true);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
       }
     }
+    
+    fetchData();
   }, [orderId]);
 
   const totalSteps = 4;
@@ -114,17 +127,39 @@ export default function BriefPage({
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    
+    try {
+      const response = await fetch("/api/brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: orderId,
+          business_name: formData.businessName,
+          business_type: formData.businessType,
+          target_audience: formData.targetAudience,
+          colors: formData.colors,
+          style: formData.style,
+          pages: formData.pages,
+          features: formData.features,
+          content: formData.content,
+          competitors: formData.competitors,
+          additional_notes: formData.additionalNotes,
+        }),
+      });
 
-    const brief: Brief = {
-      ...formData,
-      orderId,
-      submittedAt: new Date().toISOString(),
-    };
+      const data = await response.json();
 
-    saveBrief(brief);
-    setIsSubmitting(false);
-    setSubmitted(true);
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Error al enviar el brief");
+      }
+
+      setIsSubmitting(false);
+      setSubmitted(true);
+    } catch (error) {
+      console.error("Error submitting brief:", error);
+      setIsSubmitting(false);
+      alert("Error al enviar el brief. Por favor intenta de nuevo.");
+    }
   };
 
   if (!order) {
