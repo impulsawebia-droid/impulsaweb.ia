@@ -1,67 +1,42 @@
+// app/api/orders/route.ts
 import { NextResponse } from "next/server";
-import crypto from "crypto";
-import { getSheetsClient, getSpreadsheetId } from "@/lib/googleSheets";
+import { google } from "googleapis";
 
-// Column indices for orders sheet (0-indexed)
-// A: created_at, B: order_id, C: plan_id, D: plan_name, E: customer_name,
-// F: phone, G: email, H: city, I: pay_method, J: pay_type, K: amount,
-// L: payment_status, M: proof_url, N: notes, O: status, P: brief_completed
+function requiredEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
+}
 
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const orderId = searchParams.get("id");
-    const email = searchParams.get("email");
+function nowISO() {
+  return new Date().toISOString();
+}
 
-    const sheets = getSheetsClient();
-    const spreadsheetId = getSpreadsheetId();
+function generateOrderId() {
+  // ejemplo: IW-2502-ABCDE (cámbialo si quieres)
+  const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
+  const d = new Date();
+  const yy = String(d.getFullYear()).slice(2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `IW-${yy}${mm}-${rand}`;
+}
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "orders!A:P",
-    });
+async function getSheetsClient() {
+  const spreadsheetId = requiredEnv("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const clientEmail = requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const privateKeyRaw = requiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
 
-    const rows = response.data.values || [];
-    
-    // Skip header row if present
-    const dataRows = rows.length > 0 && rows[0][0] === "created_at" ? rows.slice(1) : rows;
+  // ✅ clave: convertir \n a saltos reales
+  const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
 
-    const orders = dataRows.map((row) => ({
-      id: row[1] || "",
-      planId: row[2] || "",
-      planName: row[3] || "",
-      customerName: row[4] || "",
-      customerPhone: row[5] || "",
-      customerEmail: row[6] || "",
-      city: row[7] || "",
-      paymentMethod: row[8] || "",
-      payType: row[9] || "",
-      totalPrice: parseFloat(row[10]) || 0,
-      paymentStatus: row[11] || "pending",
-      paymentProof: row[12] || "",
-      notes: row[13] || "",
-      status: row[14] || "pending_payment",
-      briefCompleted: row[15] === "true",
-      createdAt: row[0] || "",
-      updatedAt: row[0] || "",
-    }));
+  const auth = new google.auth.JWT({
+    email: clientEmail,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
 
-    // Filter by orderId or email if provided
-    let filteredOrders = orders;
-    if (orderId) {
-      filteredOrders = orders.filter((o) => o.id === orderId);
-    } else if (email) {
-      filteredOrders = orders.filter(
-        (o) => o.customerEmail.toLowerCase() === email.toLowerCase() || 
-               o.id.toLowerCase().includes(email.toLowerCase())
-      );
-    }
-
-    return NextResponse.json({ ok: true, orders: filteredOrders });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Internal error";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
-  }
+  const sheets = google.sheets({ version: "v4", auth });
+  return { sheets, spreadsheetId };
 }
 
 export async function POST(req: Request) {
@@ -72,101 +47,92 @@ export async function POST(req: Request) {
       plan_id,
       plan_name,
       customer_name,
-      phone,
       email,
-      city,
+      phone,
+      city = "",
       pay_method,
-      pay_type,
+      pay_type = "total",
       amount,
-      notes,
-    } = body;
+      notes = "",
+    } = body ?? {};
 
-    if (!plan_id || !plan_name || !customer_name || !phone || !pay_method || !amount) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    // Validaciones básicas
+    if (!plan_id || !plan_name) {
+      return NextResponse.json(
+        { ok: false, error: "plan_id y plan_name son requeridos" },
+        { status: 400 }
+      );
+    }
+    if (!customer_name || !email || !phone) {
+      return NextResponse.json(
+        { ok: false, error: "customer_name, email y phone son requeridos" },
+        { status: 400 }
+      );
+    }
+    if (!pay_method) {
+      return NextResponse.json(
+        { ok: false, error: "pay_method es requerido" },
+        { status: 400 }
+      );
+    }
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return NextResponse.json(
+        { ok: false, error: "amount debe ser un número válido" },
+        { status: 400 }
+      );
     }
 
-    const order_id = `IW-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
-    const created_at = new Date().toISOString();
+    const order_id = generateOrderId();
+    const created_at = nowISO();
 
-    const payment_status = "pending";
+    // status recomendado
     const status = "pending_payment";
+    const payment_status = "unconfirmed";
 
-    const sheets = getSheetsClient();
-    const spreadsheetId = getSpreadsheetId();
+    const { sheets, spreadsheetId } = await getSheetsClient();
+
+    // ⚠️ La pestaña debe llamarse EXACTAMENTE "orders"
+    const range = "orders!A:O";
+
+    const row = [
+      created_at,            // A created_at
+      order_id,              // B order_id
+      plan_id,               // C plan_id
+      plan_name,             // D plan_name
+      customer_name,         // E customer_name
+      phone,                 // F phone
+      email,                 // G email
+      city,                  // H city
+      pay_method,            // I pay_method
+      pay_type,              // J pay_type
+      numericAmount,         // K amount
+      payment_status,        // L payment_status
+      "",                    // M proof_url
+      notes,                 // N notes
+      status,                // O status
+    ];
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: "orders!A:P",
+      range,
       valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[
-          created_at,
-          order_id,
-          plan_id,
-          plan_name,
-          customer_name,
-          phone,
-          email || "",
-          city || "",
-          pay_method,
-          pay_type || "total",
-          amount,
-          payment_status,
-          "", // proof_url
-          notes || "",
-          status,
-          "false", // brief_completed
-        ]],
+      requestBody: { values: [row] },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      order_id,
+    });
+  } catch (err: any) {
+    console.error("POST /api/orders failed:", err?.message || err, err?.stack);
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err?.message || "Internal Server Error",
       },
-    });
-
-    return NextResponse.json({ ok: true, order_id });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Internal error";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
-  }
-}
-
-export async function PATCH(req: Request) {
-  try {
-    const body = await req.json();
-    const { order_id, brief_completed } = body;
-
-    if (!order_id) {
-      return NextResponse.json({ error: "Missing order_id" }, { status: 400 });
-    }
-
-    const sheets = getSheetsClient();
-    const spreadsheetId = getSpreadsheetId();
-
-    // Get all orders to find the row index
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "orders!A:P",
-    });
-
-    const rows = response.data.values || [];
-    const rowIndex = rows.findIndex((row) => row[1] === order_id);
-
-    if (rowIndex === -1) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    }
-
-    // Update brief_completed column (P)
-    if (brief_completed !== undefined) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `orders!P${rowIndex + 1}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[brief_completed.toString()]],
-        },
-      });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Internal error";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+      { status: 500 }
+    );
   }
 }
