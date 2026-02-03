@@ -121,51 +121,46 @@ export default function BriefPage({
   };
 
   const handleSubmit = async () => {
-    setIsSubmitting(true);
-    setLoadError(null);
+  setIsSubmitting(true);
 
-    try {
-      const payload = {
-        orderId,
-        businessName: formData.businessName,
-        businessType: formData.businessType,
-        targetAudience: formData.targetAudience,
-        competitors: formData.competitors,
-        colors: formData.colors,
-        style: formData.style,
-        pages: formData.pages,
-        features: formData.features,
-        content: formData.content,
-        additionalNotes: formData.additionalNotes,
-      };
+  try {
+    const payload = {
+      order_id: orderId,
+      business_name: formData.businessName,
+      business_type: formData.businessType,
+      target_audience: formData.targetAudience,
+      competitors: formData.competitors,
+      colors: formData.colors,
+      style: formData.style,
+      pages: formData.pages,
+      features: formData.features,
+      content: formData.content,
+      additional_notes: formData.additionalNotes,
+    };
 
-      const res = await fetch("/api/brief", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    const res = await fetch("/api/brief", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-      const data = await res.json().catch(() => ({}));
+    const data = await res.json();
 
-      if (!res.ok || !data?.ok) {
-        console.error("POST /api/brief error:", data);
-        const msg = data?.error || `Error ${res.status} enviando brief`;
-        setLoadError(msg);
-        alert(`Error al enviar el brief: ${msg}`);
-        setIsSubmitting(false);
-        return;
-      }
-
+    if (!res.ok) {
+      console.error("POST /api/brief error:", data);
+      alert(`Error al enviar el brief: ${data?.error || "Intenta de nuevo"}`);
       setIsSubmitting(false);
-      setSubmitted(true);
-    } catch (e: any) {
-      console.error(e);
-      const msg = e?.message || "Error inesperado";
-      setLoadError(msg);
-      alert(`Error al enviar el brief: ${msg}`);
-      setIsSubmitting(false);
+      return;
     }
-  };
+
+    setSubmitted(true);
+  } catch (err) {
+    console.error(err);
+    alert("Error al enviar el brief. Por favor intenta de nuevo.");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   if (submitted) {
     return (
