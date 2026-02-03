@@ -1,216 +1,111 @@
 // app/api/orders/route.ts
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 
 function requiredEnv(name: string) {
   const v = process.env[name];
-  if (!v) {
-    console.error(`[v0] Missing required environment variable: ${name}`);
-    throw new Error(`Configuracion incompleta: falta ${name}`);
-  }
+  if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
 }
 
-function nowISO() {
-  return new Date().toISOString();
+function getGoogleAuth() {
+  const client_email = requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+
+  let private_key = requiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").trim();
+
+  // Quita comillas accidentales
+  if (
+    (private_key.startsWith('"') && private_key.endsWith('"')) ||
+    (private_key.startsWith("'") && private_key.endsWith("'"))
+  ) {
+    private_key = private_key.slice(1, -1);
+  }
+
+  // Convierte \n literales a saltos reales
+  private_key = private_key.replace(/\\n/g, "\n");
+
+  return new google.auth.JWT({
+    email: client_email,
+    key: private_key,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+}
+
+async function appendRow(sheetName: string, values: (string | number)[]) {
+  const spreadsheetId = requiredEnv("GOOGLE_SHEETS_SPREADSHEET_ID");
+  const auth = getGoogleAuth();
+
+  const sheets = google.sheets({ version: "v4", auth });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${sheetName}!A:Z`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [values],
+    },
+  });
 }
 
 function generateOrderId() {
-  // ejemplo: IW-2502-ABCDE (cámbialo si quieres)
-  const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
-  const d = new Date();
-  const yy = String(d.getFullYear()).slice(2);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `IW-${yy}${mm}-${rand}`;
 }
 
-async function getSheetsClient() {
-  const spreadsheetId = requiredEnv("GOOGLE_SHEETS_ID");
-  const clientEmail = requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const privateKeyRaw = requiredEnv("GOOGLE_PRIVATE_KEY");
-
-  // Convertir \n literales a saltos de linea reales
-  // Tambien manejar el caso donde la clave venga con comillas
-  let privateKey = privateKeyRaw
-    .replace(/\\n/g, "\n")
-    .replace(/^["']|["']$/g, ""); // Quitar comillas si existen
-  
-  // Si la clave no tiene el formato correcto, intentar decodificarla de base64
-  if (!privateKey.includes("-----BEGIN PRIVATE KEY-----")) {
-    try {
-      privateKey = Buffer.from(privateKey, "base64").toString("utf-8");
-    } catch {
-      // Si falla, usar la clave tal cual
-    }
-  }
-
-  console.log("[v0] Private key starts with:", privateKey.substring(0, 50));
-  
-  const auth = new google.auth.JWT({
-    email: clientEmail,
-    key: privateKey,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-
-  const sheets = google.sheets({ version: "v4", auth });
-  return { sheets, spreadsheetId };
-}
-
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const orderId = searchParams.get("id");
-    const email = searchParams.get("email");
-
-    const { sheets, spreadsheetId } = await getSheetsClient();
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "orders!A:P",
-    });
-
-    const rows = response.data.values || [];
-    
-    // Skip header row if present (check if first cell is "created_at")
-    const dataRows = rows.length > 0 && rows[0][0] === "created_at" ? rows.slice(1) : rows;
-
-    const orders = dataRows.map((row) => ({
-      id: row[1] || "",
-      planId: row[2] || "",
-      planName: row[3] || "",
-      customerName: row[4] || "",
-      customerPhone: row[5] || "",
-      customerEmail: row[6] || "",
-      city: row[7] || "",
-      paymentMethod: row[8] || "",
-      payType: row[9] || "",
-      totalPrice: parseFloat(row[10]) || 0,
-      paymentStatus: row[11] || "pending",
-      paymentProof: row[12] || "",
-      notes: row[13] || "",
-      status: row[14] || "pending_payment",
-      briefCompleted: row[15] === "true",
-      createdAt: row[0] || "",
-      updatedAt: row[0] || "",
-    }));
-
-    // Filter by orderId or email if provided
-    let filteredOrders = orders;
-    if (orderId) {
-      filteredOrders = orders.filter((o) => o.id === orderId);
-    } else if (email) {
-      filteredOrders = orders.filter(
-        (o) => o.customerEmail.toLowerCase() === email.toLowerCase() || 
-               o.id.toLowerCase().includes(email.toLowerCase())
-      );
-    }
-
-    return NextResponse.json({ ok: true, orders: filteredOrders });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Internal error";
-    console.error("GET /api/orders failed:", errorMessage);
-    return NextResponse.json({ ok: false, error: errorMessage }, { status: 500 });
-  }
-}
-
 export async function POST(req: Request) {
-  console.log("[v0] POST /api/orders - Starting");
-  
   try {
     const body = await req.json();
-    console.log("[v0] Request body received:", JSON.stringify(body));
 
-    const {
-      plan_id,
-      plan_name,
-      customer_name,
-      email,
-      phone,
-      city = "",
-      pay_method,
-      pay_type = "total",
-      amount,
-      notes = "",
-    } = body ?? {};
+    const plan_id = String(body.plan_id || "");
+    const plan_name = String(body.plan_name || "");
+    const customer_name = String(body.customer_name || "");
+    const email = String(body.email || "");
+    const phone = String(body.phone || "");
+    const city = String(body.city || "");
+    const pay_method = String(body.pay_method || "");
+    const pay_type = String(body.pay_type || "total");
+    const amount = Number(body.amount || 0);
+    const notes = String(body.notes || "");
 
-    // Validaciones básicas
-    if (!plan_id || !plan_name) {
+    if (!plan_id || !plan_name || !customer_name || !email || !phone || !pay_method || !amount) {
       return NextResponse.json(
-        { ok: false, error: "plan_id y plan_name son requeridos" },
-        { status: 400 }
-      );
-    }
-    if (!customer_name || !email || !phone) {
-      return NextResponse.json(
-        { ok: false, error: "customer_name, email y phone son requeridos" },
-        { status: 400 }
-      );
-    }
-    if (!pay_method) {
-      return NextResponse.json(
-        { ok: false, error: "pay_method es requerido" },
-        { status: 400 }
-      );
-    }
-    const numericAmount = Number(amount);
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      return NextResponse.json(
-        { ok: false, error: "amount debe ser un número válido" },
+        { ok: false, error: "Missing required fields" },
         { status: 400 }
       );
     }
 
     const order_id = generateOrderId();
-    const created_at = nowISO();
-
-    // status recomendado
+    const created_at = new Date().toISOString();
     const status = "pending_payment";
-    const payment_status = "unconfirmed";
 
-    console.log("[v0] Getting Google Sheets client...");
-    const { sheets, spreadsheetId } = await getSheetsClient();
-    console.log("[v0] Connected to spreadsheet:", spreadsheetId);
-
-    // La pestana debe llamarse EXACTAMENTE "orders"
-    const range = "orders!A:O";
-
-    const row = [
-      created_at,            // A created_at
-      order_id,              // B order_id
-      plan_id,               // C plan_id
-      plan_name,             // D plan_name
-      customer_name,         // E customer_name
-      phone,                 // F phone
-      email,                 // G email
-      city,                  // H city
-      pay_method,            // I pay_method
-      pay_type,              // J pay_type
-      numericAmount,         // K amount
-      payment_status,        // L payment_status
-      "",                    // M proof_url
-      notes,                 // N notes
-      status,                // O status
-    ];
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [row] },
-    });
-
-    return NextResponse.json({
-      ok: true,
+    // ✅ Orden de columnas sugerido (debe coincidir con tu sheet):
+    // created_at | order_id | plan_id | plan_name | customer_name | email | phone | city | pay_method | pay_type | amount | status | notes
+    await appendRow("orders", [
+      created_at,
       order_id,
-    });
-  } catch (err: any) {
-    console.error("POST /api/orders failed:", err?.message || err, err?.stack);
+      plan_id,
+      plan_name,
+      customer_name,
+      email,
+      phone,
+      city,
+      pay_method,
+      pay_type,
+      amount,
+      status,
+      notes,
+    ]);
 
+    return NextResponse.json({ ok: true, order_id });
+  } catch (err: any) {
+    console.error("POST /api/orders error:", err?.message || err, err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: err?.message || "Internal Server Error",
-      },
+      { ok: false, error: err?.message || "Internal error" },
       { status: 500 }
     );
   }
