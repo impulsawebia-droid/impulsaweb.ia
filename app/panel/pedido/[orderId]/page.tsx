@@ -136,8 +136,9 @@ export default function OrderDetailPage({
     );
   }
 
-  const status = statusConfig[order.status];
-  const StatusIcon = status.icon;
+  const safeStatus =
+  statusConfig[order.status as Order["status"]] ?? statusConfig["pending_payment"];
+  const StatusIcon = safeStatus.icon;
   const plan = plans.find((p) => p.id === order.planId);
   const currentStepIndex = statusSteps.indexOf(order.status);
 

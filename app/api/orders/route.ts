@@ -1,83 +1,35 @@
-// app/api/orders/route.ts
-export const runtime = "nodejs";
-
 import { NextResponse } from "next/server";
-import { appendRow, getSheetValues } from "@/lib/googleSheets";
-
-function generateOrderId() {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `IW-${yy}${mm}-${rand}`;
-}
-
-type OrderRow = {
-  created_at: string;
-  order_id: string;
-  plan_id: string;
-  plan_name: string;
-  customer_name: string;
-  email: string;
-  phone: string;
-  city: string;
-  pay_method: string;
-  pay_type: string;
-  amount: number;
-  status: string;
-  notes: string;
-};
-
-function rowToOrder(headers: string[], row: any[]): OrderRow {
-  const obj: any = {};
-  headers.forEach((h, i) => (obj[h] = row?.[i] ?? ""));
-  return {
-    created_at: String(obj.created_at || ""),
-    order_id: String(obj.order_id || ""),
-    plan_id: String(obj.plan_id || ""),
-    plan_name: String(obj.plan_name || ""),
-    customer_name: String(obj.customer_name || ""),
-    email: String(obj.email || ""),
-    phone: String(obj.phone || ""),
-    city: String(obj.city || ""),
-    pay_method: String(obj.pay_method || ""),
-    pay_type: String(obj.pay_type || ""),
-    amount: Number(obj.amount || 0),
-    status: String(obj.status || ""),
-    notes: String(obj.notes || ""),
-  };
-}
+import { google } from "googleapis";
+import { getSheetValues } from "@/lib/googleSheets"; // 👈 si tu helper lo tiene
 
 export async function GET(req: Request) {
   try {
-    const url = new URL(req.url);
-    const email = (url.searchParams.get("email") || "").trim().toLowerCase();
-    const order_id = (url.searchParams.get("order_id") || "").trim();
+    const { searchParams } = new URL(req.url);
+    const email = searchParams.get("email");
+    const order_id = searchParams.get("order_id");
 
     const values = await getSheetValues("orders", "A:Z");
-    if (values.length < 2) {
-      return NextResponse.json({ ok: true, orders: [] });
-    }
+    if (!values || values.length < 2) return NextResponse.json({ ok: true, orders: [] });
 
-    const headers = values[0].map((h) => String(h).trim());
+    const headers = values[0].map((h: any) => String(h).trim());
     const rows = values.slice(1);
 
-    let orders = rows
-      .map((r) => rowToOrder(headers, r))
-      .filter((o) => o.order_id);
+    const idxOrderId = headers.indexOf("order_id");
+    const idxEmail = headers.indexOf("email");
 
-    if (email) {
-      orders = orders.filter((o) => (o.email || "").toLowerCase() === email);
-    }
+    const filtered = rows
+      .map((r: any[]) => {
+        const obj: any = {};
+        headers.forEach((h: string, i: number) => (obj[h] = r?.[i] ?? ""));
+        return obj;
+      })
+      .filter((o: any) => {
+        if (order_id) return String(o.order_id || "").toLowerCase() === order_id.toLowerCase();
+        if (email) return String(o.email || "").toLowerCase() === email.toLowerCase();
+        return true;
+      });
 
-    if (order_id) {
-      orders = orders.filter((o) => o.order_id === order_id);
-    }
-
-    // opcional: ordenar por fecha desc
-    orders.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-
-    return NextResponse.json({ ok: true, orders });
+    return NextResponse.json({ ok: true, orders: filtered });
   } catch (err: any) {
     console.error("GET /api/orders error:", err?.message || err, err);
     return NextResponse.json(
@@ -86,6 +38,7 @@ export async function GET(req: Request) {
     );
   }
 }
+
 
 export async function POST(req: Request) {
   try {

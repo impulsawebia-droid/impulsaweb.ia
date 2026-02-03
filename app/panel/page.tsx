@@ -142,50 +142,49 @@ export default function PanelPage() {
   const isOrderId = (v: string) => v.toUpperCase().startsWith("IW-");
 
   const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSearching(true);
-    setError(null);
+  e.preventDefault();
+  setIsSearching(true);
+
+  try {
+    const q = searchEmail.trim();
+
+    const url =
+      q.includes("@")
+        ? `/api/orders?email=${encodeURIComponent(q)}`
+        : q
+          ? `/api/orders?order_id=${encodeURIComponent(q)}`
+          : `/api/orders`;
+
+    const res = await fetch(url);
+
+    const text = await res.text();
+    let data: any = null;
 
     try {
-      const q = query.trim();
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
 
-      const url = new URL("/api/orders", window.location.origin);
-
-      if (q) {
-        if (isEmail(q)) url.searchParams.set("email", q);
-        else if (isOrderId(q)) url.searchParams.set("order_id", q.toUpperCase());
-        else {
-          // si escribe algo raro, intentamos como order_id parcial (no recomendado)
-          url.searchParams.set("order_id", q);
-        }
-      }
-
-      const res = await fetch(url.toString(), { method: "GET" });
-
-      // ✅ si algo falla, lee texto primero (evita "Unexpected end of JSON")
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = {};
-      }
-
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || `Error consultando pedidos (${res.status})`);
-      }
-
-      setOrders(data.orders || []);
-      setHasSearched(true);
-    } catch (err: any) {
+    if (!res.ok) {
+      console.error("Orders API error:", res.status, data || text);
+      alert(data?.error || "Error consultando pedidos");
       setOrders([]);
       setHasSearched(true);
-      setError(err?.message || "Error consultando pedidos");
-      console.error(err);
-    } finally {
       setIsSearching(false);
+      return;
     }
-  };
+
+    setOrders((data?.orders || []) as any);
+    setHasSearched(true);
+  } catch (err) {
+    console.error(err);
+    alert("Error inesperado consultando pedidos");
+  } finally {
+    setIsSearching(false);
+  }
+};
+
 
   return (
     <div className="flex min-h-screen flex-col">
