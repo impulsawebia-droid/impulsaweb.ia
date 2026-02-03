@@ -126,14 +126,17 @@ export default function BriefPage({
   try {
     const payload = {
       order_id: orderId,
+
       business_name: formData.businessName,
       business_type: formData.businessType,
       target_audience: formData.targetAudience,
       competitors: formData.competitors,
       colors: formData.colors,
       style: formData.style,
-      pages: formData.pages,
-      features: formData.features,
+
+      pages: formData.pages,       // array
+      features: formData.features, // array
+
       content: formData.content,
       additional_notes: formData.additionalNotes,
     };
@@ -146,9 +149,9 @@ export default function BriefPage({
 
     const data = await res.json();
 
-    if (!res.ok) {
+    if (!res.ok || !data?.ok) {
       console.error("POST /api/brief error:", data);
-      alert(`Error al enviar el brief: ${data?.error || "Intenta de nuevo"}`);
+      alert(data?.error || "Error al enviar el brief. Por favor intenta de nuevo.");
       setIsSubmitting(false);
       return;
     }
@@ -156,11 +159,12 @@ export default function BriefPage({
     setSubmitted(true);
   } catch (err) {
     console.error(err);
-    alert("Error al enviar el brief. Por favor intenta de nuevo.");
+    alert("Error inesperado enviando el brief.");
   } finally {
     setIsSubmitting(false);
   }
 };
+
 
   if (submitted) {
     return (
