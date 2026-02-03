@@ -1,8 +1,7 @@
+// app/panel/pedido/[orderId]/page.tsx
 "use client";
 
-import React from "react"
-
-import { useState, useEffect, use } from "react";
+import React, { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
@@ -11,8 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { plans } from "@/lib/data";
-import type { Order, Brief } from "@/lib/types";
 import {
   ArrowLeft,
   Clock,
@@ -29,15 +26,33 @@ import {
   Package,
 } from "lucide-react";
 
+type OrderStatus = "pending_payment" | "paid" | "in_progress" | "review" | "completed";
+
+type Order = {
+  created_at?: string;
+  order_id: string;
+  plan_name: string;
+  plan_id?: string;
+  customer_name?: string;
+  email: string;
+  phone?: string;
+  city?: string;
+  pay_method?: string;
+  pay_type?: string;
+  amount?: string | number;
+  status: string;
+  notes?: string;
+};
+
 const statusConfig: Record<
-  Order["status"],
+  OrderStatus,
   { label: string; color: string; icon: React.ElementType; description: string }
 > = {
   pending_payment: {
     label: "Pendiente de Pago",
     color: "bg-amber-100 text-amber-800",
     icon: Clock,
-    description: "Esperando confirmacion del pago.",
+    description: "Esperando confirmación del pago.",
   },
   paid: {
     label: "Pago Recibido",
@@ -49,13 +64,13 @@ const statusConfig: Record<
     label: "En Desarrollo",
     color: "bg-purple-100 text-purple-800",
     icon: Sparkles,
-    description: "Nuestro equipo esta trabajando en tu proyecto.",
+    description: "Nuestro equipo está trabajando en tu proyecto.",
   },
   review: {
-    label: "En Revision",
+    label: "En Revisión",
     color: "bg-orange-100 text-orange-800",
     icon: AlertCircle,
-    description: "Tu proyecto esta listo para revision. Te contactaremos pronto.",
+    description: "Tu proyecto está listo para revisión. Te contactaremos pronto.",
   },
   completed: {
     label: "Completado",
@@ -65,55 +80,61 @@ const statusConfig: Record<
   },
 };
 
-const paymentMethodLabels: Record<Order["paymentMethod"], string> = {
+const paymentMethodLabels: Record<string, string> = {
   nequi: "Nequi",
   bancolombia: "Bancolombia",
   daviplata: "Daviplata",
-  card: "Tarjeta de Credito/Debito",
+  card: "Tarjeta de Crédito/Débito",
 };
 
-const statusSteps: Order["status"][] = [
-  "pending_payment",
-  "paid",
-  "in_progress",
-  "review",
-  "completed",
-];
+const statusSteps: OrderStatus[] = ["pending_payment", "paid", "in_progress", "review", "completed"];
 
-export default function OrderDetailPage({
-  params,
-}: {
-  params: Promise<{ orderId: string }>;
-}) {
+function normalizeStatus(s: string): OrderStatus {
+  const v = (s || "").trim() as OrderStatus;
+  return (v in statusConfig ? v : "pending_payment") as OrderStatus;
+}
+
+async function safeJson(res: Response) {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return { ok: false, error: text || "Invalid JSON" };
+  }
+}
+
+export default function OrderDetailPage({ params }: { params: Promise<{ orderId: string }> }) {
   const { orderId } = use(params);
   const router = useRouter();
+
   const [order, setOrder] = useState<Order | null>(null);
-  const [brief, setBrief] = useState<Brief | null>(null);
+  const [brief, setBrief] = useState<any>(null);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        // Fetch order
-        const orderRes = await fetch(`/api/orders?id=${orderId}`);
-        const orderData = await orderRes.json();
-        
-        if (orderData.ok && orderData.orders.length > 0) {
-          setOrder(orderData.orders[0]);
-          
-          // Fetch brief
-          const briefRes = await fetch(`/api/brief?order_id=${orderId}`);
-          const briefData = await briefRes.json();
-          
-          if (briefData.ok && briefData.brief) {
-            setBrief(briefData.brief);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching data:", error);
+    (async () => {
+      // 1) Traer orden
+      const res = await fetch(`/api/orders?order_id=${encodeURIComponent(orderId)}`, { cache: "no-store" });
+      const data = await safeJson(res);
+
+      if (!res.ok || !data?.ok) {
+        setOrder(null);
+        return;
       }
-    }
-    
-    fetchData();
+
+      const found = (data.orders || [])[0] as Order | undefined;
+      if (!found) {
+        setOrder(null);
+        return;
+      }
+
+      setOrder(found);
+
+      // 2) Traer brief
+      const r2 = await fetch(`/api/brief?order_id=${encodeURIComponent(orderId)}`, { cache: "no-store" });
+      const d2 = await safeJson(r2);
+      if (r2.ok && d2?.ok) setBrief(d2.brief || null);
+      else setBrief(null);
+    })();
   }, [orderId]);
 
   if (!order) {
@@ -123,9 +144,7 @@ export default function OrderDetailPage({
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold">Pedido no encontrado</h1>
-            <p className="mt-2 text-muted-foreground">
-              Verifica que el numero de pedido sea correcto.
-            </p>
+            <p className="mt-2 text-muted-foreground">Verifica que el número de pedido sea correcto.</p>
             <Button className="mt-4" onClick={() => router.push("/panel")}>
               Ir a Mi Panel
             </Button>
@@ -136,19 +155,26 @@ export default function OrderDetailPage({
     );
   }
 
-  const safeStatus =
-  statusConfig[order.status as Order["status"]] ?? statusConfig["pending_payment"];
-  const StatusIcon = safeStatus.icon;
-  const plan = plans.find((p) => p.id === order.planId);
-  const currentStepIndex = statusSteps.indexOf(order.status);
+  const statusKey = normalizeStatus(String(order.status || ""));
+  const status = statusConfig[statusKey];
+  const StatusIcon = status.icon;
 
-  const createdDate = new Date(order.createdAt).toLocaleDateString("es-CO", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const createdDate = order.created_at
+    ? new Date(order.created_at).toLocaleDateString("es-CO", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "-";
+
+  const amountNumber =
+    typeof order.amount === "number"
+      ? order.amount
+      : Number(String(order.amount || "0").replace(/[^\d]/g, "")) || 0;
+
+  const currentStepIndex = statusSteps.indexOf(statusKey);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -166,12 +192,8 @@ export default function OrderDetailPage({
           <div className="mb-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold text-foreground">
-                  Pedido {order.id}
-                </h1>
-                <p className="mt-1 text-muted-foreground">
-                  Creado el {createdDate}
-                </p>
+                <h1 className="text-2xl font-bold text-foreground">Pedido {order.order_id}</h1>
+                <p className="mt-1 text-muted-foreground">Creado el {createdDate}</p>
               </div>
               <Badge className={`${status.color} text-sm py-1.5 px-3`}>
                 <StatusIcon className="h-4 w-4 mr-1.5" />
@@ -182,7 +204,6 @@ export default function OrderDetailPage({
 
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-6">
-              {/* Progress Timeline */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Progreso del Proyecto</CardTitle>
@@ -198,10 +219,7 @@ export default function OrderDetailPage({
                         const isCurrent = index === currentStepIndex;
 
                         return (
-                          <div
-                            key={stepStatus}
-                            className="relative flex items-start gap-4 pl-10"
-                          >
+                          <div key={stepStatus} className="relative flex items-start gap-4 pl-10">
                             <div
                               className={`absolute left-0 flex h-8 w-8 items-center justify-center rounded-full ${
                                 isCompleted
@@ -214,19 +232,11 @@ export default function OrderDetailPage({
                               <StepIcon className="h-4 w-4" />
                             </div>
                             <div>
-                              <p
-                                className={`font-medium ${
-                                  isCompleted
-                                    ? "text-foreground"
-                                    : "text-muted-foreground"
-                                }`}
-                              >
+                              <p className={`font-medium ${isCompleted ? "text-foreground" : "text-muted-foreground"}`}>
                                 {stepConfig.label}
                               </p>
                               {isCurrent && (
-                                <p className="text-sm text-muted-foreground mt-1">
-                                  {stepConfig.description}
-                                </p>
+                                <p className="text-sm text-muted-foreground mt-1">{stepConfig.description}</p>
                               )}
                             </div>
                           </div>
@@ -237,7 +247,6 @@ export default function OrderDetailPage({
                 </CardContent>
               </Card>
 
-              {/* Brief Status */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -252,35 +261,32 @@ export default function OrderDetailPage({
                         <CheckCircle className="h-5 w-5" />
                         <span className="font-medium">Brief completado</span>
                       </div>
+
                       <div className="grid gap-4 sm:grid-cols-2 text-sm">
                         <div>
                           <p className="text-muted-foreground">Nombre del negocio</p>
-                          <p className="font-medium">{brief.businessName}</p>
+                          <p className="font-medium">{brief.business_name || "-"}</p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">Tipo de negocio</p>
-                          <p className="font-medium">{brief.businessType}</p>
+                          <p className="font-medium">{brief.business_type || "-"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Estilo preferido</p>
-                          <p className="font-medium capitalize">{brief.style}</p>
+                          <p className="text-muted-foreground">Estilo</p>
+                          <p className="font-medium">{brief.style || "-"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Paginas seleccionadas</p>
-                          <p className="font-medium">{brief.pages.length} paginas</p>
+                          <p className="text-muted-foreground">Páginas</p>
+                          <p className="font-medium">{brief.pages || "-"}</p>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <div className="text-center py-4">
                       <AlertCircle className="h-8 w-8 text-amber-500 mx-auto" />
-                      <p className="mt-3 font-medium text-foreground">
-                        Brief pendiente
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Completa el brief para que podamos empezar tu proyecto.
-                      </p>
-                      <Link href={`/brief/${order.id}`}>
+                      <p className="mt-3 font-medium text-foreground">Brief pendiente</p>
+                      <p className="text-sm text-muted-foreground mt-1">Completa el brief para que podamos empezar.</p>
+                      <Link href={`/brief/${order.order_id}`}>
                         <Button className="mt-4">Completar Brief</Button>
                       </Link>
                     </div>
@@ -290,7 +296,6 @@ export default function OrderDetailPage({
             </div>
 
             <div className="space-y-6">
-              {/* Order Summary */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -301,25 +306,16 @@ export default function OrderDetailPage({
                 <CardContent className="space-y-4">
                   <div>
                     <p className="text-muted-foreground text-sm">Plan</p>
-                    <p className="font-semibold text-foreground">{order.planName}</p>
+                    <p className="font-semibold text-foreground">{order.plan_name}</p>
                   </div>
-                  {plan && (
-                    <div>
-                      <p className="text-muted-foreground text-sm">Tiempo de entrega</p>
-                      <p className="font-medium">{plan.deliveryTime}</p>
-                    </div>
-                  )}
                   <Separator />
                   <div>
                     <p className="text-muted-foreground text-sm">Total</p>
-                    <p className="text-2xl font-bold text-primary">
-                      ${order.totalPrice.toLocaleString("es-CO")} COP
-                    </p>
+                    <p className="text-2xl font-bold text-primary">${amountNumber.toLocaleString("es-CO")} COP</p>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Customer Info */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -330,19 +326,19 @@ export default function OrderDetailPage({
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex items-center gap-3">
                     <User className="h-4 w-4 text-muted-foreground" />
-                    <span>{order.customerName}</span>
+                    <span>{order.customer_name || "-"}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span>{order.customerEmail}</span>
+                    <span>{order.email}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{order.customerPhone}</span>
+                    <span>{order.phone || "-"}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <CreditCard className="h-4 w-4 text-muted-foreground" />
-                    <span>{paymentMethodLabels[order.paymentMethod]}</span>
+                    <span>{paymentMethodLabels[String(order.pay_method || "")] || String(order.pay_method || "-")}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -351,18 +347,17 @@ export default function OrderDetailPage({
                 </CardContent>
               </Card>
 
-              {/* Help */}
               <Card className="bg-primary/5 border-primary/20">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-foreground flex items-center gap-2">
                     <MessageCircle className="h-5 w-5 text-primary" />
-                    Necesitas ayuda?
+                    ¿Necesitas ayuda?
                   </h3>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Si tienes preguntas sobre tu proyecto, contactanos por WhatsApp.
+                    Si tienes preguntas sobre tu proyecto, contáctanos por WhatsApp.
                   </p>
                   <a
-                    href={`https://wa.me/573001234567?text=Hola!%20Tengo%20una%20pregunta%20sobre%20mi%20pedido%20${order.id}`}
+                    href={`https://wa.me/573001234567?text=Hola!%20Tengo%20una%20pregunta%20sobre%20mi%20pedido%20${order.order_id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >

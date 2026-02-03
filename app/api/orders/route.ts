@@ -1,6 +1,27 @@
+// app/api/orders/route.ts
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
-import { google } from "googleapis";
-import { getSheetValues } from "@/lib/googleSheets"; // 👈 si tu helper lo tiene
+import { appendRow, getSheetValues } from "@/lib/googleSheets";
+
+function generateOrderId() {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `IW-${yy}${mm}-${rand}`;
+}
+
+function rowsToObjects(values: any[][]) {
+  const headers = values[0].map((h: any) => String(h).trim());
+  const rows = values.slice(1);
+
+  return rows.map((r: any[]) => {
+    const obj: any = {};
+    headers.forEach((h: string, i: number) => (obj[h] = r?.[i] ?? ""));
+    return obj;
+  });
+}
 
 export async function GET(req: Request) {
   try {
@@ -9,27 +30,21 @@ export async function GET(req: Request) {
     const order_id = searchParams.get("order_id");
 
     const values = await getSheetValues("orders", "A:Z");
-    if (!values || values.length < 2) return NextResponse.json({ ok: true, orders: [] });
+    if (!values || values.length < 2) {
+      return NextResponse.json({ ok: true, orders: [] });
+    }
 
-    const headers = values[0].map((h: any) => String(h).trim());
-    const rows = values.slice(1);
+    const orders = rowsToObjects(values).filter((o: any) => {
+      if (order_id) {
+        return String(o.order_id || "").toLowerCase() === order_id.toLowerCase();
+      }
+      if (email) {
+        return String(o.email || "").toLowerCase() === email.toLowerCase();
+      }
+      return true;
+    });
 
-    const idxOrderId = headers.indexOf("order_id");
-    const idxEmail = headers.indexOf("email");
-
-    const filtered = rows
-      .map((r: any[]) => {
-        const obj: any = {};
-        headers.forEach((h: string, i: number) => (obj[h] = r?.[i] ?? ""));
-        return obj;
-      })
-      .filter((o: any) => {
-        if (order_id) return String(o.order_id || "").toLowerCase() === order_id.toLowerCase();
-        if (email) return String(o.email || "").toLowerCase() === email.toLowerCase();
-        return true;
-      });
-
-    return NextResponse.json({ ok: true, orders: filtered });
+    return NextResponse.json({ ok: true, orders });
   } catch (err: any) {
     console.error("GET /api/orders error:", err?.message || err, err);
     return NextResponse.json(
@@ -38,7 +53,6 @@ export async function GET(req: Request) {
     );
   }
 }
-
 
 export async function POST(req: Request) {
   try {
@@ -55,15 +69,7 @@ export async function POST(req: Request) {
     const amount = Number(body.amount || 0);
     const notes = String(body.notes || "");
 
-    if (
-      !plan_id ||
-      !plan_name ||
-      !customer_name ||
-      !email ||
-      !phone ||
-      !pay_method ||
-      !amount
-    ) {
+    if (!plan_id || !plan_name || !customer_name || !email || !phone || !pay_method || !amount) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields" },
         { status: 400 }
