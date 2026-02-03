@@ -1,18 +1,22 @@
+// app/panel/page.tsx
 "use client";
 
-import React from "react"
-
-import { useState, useEffect } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import type { Order } from "@/lib/types";
 import {
   Package,
   Clock,
@@ -23,6 +27,22 @@ import {
   Search,
   Sparkles,
 } from "lucide-react";
+
+type Order = {
+  created_at: string;
+  order_id: string;
+  plan_id: string;
+  plan_name: string;
+  customer_name: string;
+  email: string;
+  phone: string;
+  city: string;
+  pay_method: string;
+  pay_type: string;
+  amount: number;
+  status: "pending_payment" | "paid" | "in_progress" | "review" | "completed";
+  notes: string;
+};
 
 const statusConfig: Record<
   Order["status"],
@@ -44,7 +64,7 @@ const statusConfig: Record<
     icon: Sparkles,
   },
   review: {
-    label: "En Revision",
+    label: "En Revisión",
     color: "bg-orange-100 text-orange-800",
     icon: AlertCircle,
   },
@@ -56,9 +76,10 @@ const statusConfig: Record<
 };
 
 function OrderCard({ order }: { order: Order }) {
-  const status = statusConfig[order.status];
+  const status = statusConfig[order.status] || statusConfig.pending_payment;
   const StatusIcon = status.icon;
-  const createdDate = new Date(order.createdAt).toLocaleDateString("es-CO", {
+
+  const createdDate = new Date(order.created_at).toLocaleDateString("es-CO", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -69,9 +90,9 @@ function OrderCard({ order }: { order: Order }) {
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div>
-            <CardTitle className="text-lg">{order.planName}</CardTitle>
+            <CardTitle className="text-lg">{order.plan_name}</CardTitle>
             <CardDescription className="mt-1">
-              Pedido: {order.id}
+              Pedido: {order.order_id}
             </CardDescription>
           </div>
           <Badge className={status.color}>
@@ -80,6 +101,7 @@ function OrderCard({ order }: { order: Order }) {
           </Badge>
         </div>
       </CardHeader>
+
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2 text-sm">
           <div>
@@ -89,38 +111,15 @@ function OrderCard({ order }: { order: Order }) {
           <div>
             <p className="text-muted-foreground">Total</p>
             <p className="font-medium">
-              ${order.totalPrice.toLocaleString("es-CO")} COP
+              ${Number(order.amount || 0).toLocaleString("es-CO")} COP
             </p>
           </div>
         </div>
 
         <Separator />
 
-        <div className="space-y-3">
-          <p className="text-sm font-medium">Estado del Brief:</p>
-          {order.briefCompleted ? (
-            <div className="flex items-center gap-2 text-sm text-accent">
-              <CheckCircle className="h-4 w-4" />
-              <span>Brief completado</span>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm text-amber-600">
-                <AlertCircle className="h-4 w-4" />
-                <span>Brief pendiente</span>
-              </div>
-              <Link href={`/brief/${order.id}`}>
-                <Button size="sm" variant="outline" className="gap-1 bg-transparent">
-                  Completar
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-          )}
-        </div>
-
         <div className="pt-2">
-          <Link href={`/panel/pedido/${order.id}`}>
+          <Link href={`/panel/pedido/${order.order_id}`}>
             <Button variant="outline" className="w-full gap-2 bg-transparent">
               <FileText className="h-4 w-4" />
               Ver Detalles
@@ -134,46 +133,55 @@ function OrderCard({ order }: { order: Order }) {
 
 export default function PanelPage() {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [searchEmail, setSearchEmail] = useState("");
+  const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Load all orders initially
-    async function fetchOrders() {
-      try {
-        const response = await fetch("/api/orders");
-        const data = await response.json();
-        if (data.ok && data.orders.length > 0) {
-          setOrders(data.orders);
-          setHasSearched(true);
-        }
-      } catch (error) {
-        console.error("Error fetching orders:", error);
-      }
-    }
-    fetchOrders();
-  }, []);
+  const isEmail = (v: string) => v.includes("@") && v.includes(".");
+  const isOrderId = (v: string) => v.toUpperCase().startsWith("IW-");
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSearching(true);
+    setError(null);
 
     try {
-      const queryParam = searchEmail ? `?email=${encodeURIComponent(searchEmail)}` : "";
-      const response = await fetch(`/api/orders${queryParam}`);
-      const data = await response.json();
-      
-      if (data.ok) {
-        setOrders(data.orders);
-      } else {
-        setOrders([]);
+      const q = query.trim();
+
+      const url = new URL("/api/orders", window.location.origin);
+
+      if (q) {
+        if (isEmail(q)) url.searchParams.set("email", q);
+        else if (isOrderId(q)) url.searchParams.set("order_id", q.toUpperCase());
+        else {
+          // si escribe algo raro, intentamos como order_id parcial (no recomendado)
+          url.searchParams.set("order_id", q);
+        }
       }
+
+      const res = await fetch(url.toString(), { method: "GET" });
+
+      // ✅ si algo falla, lee texto primero (evita "Unexpected end of JSON")
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {};
+      }
+
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || `Error consultando pedidos (${res.status})`);
+      }
+
+      setOrders(data.orders || []);
       setHasSearched(true);
-    } catch (error) {
-      console.error("Error searching orders:", error);
+    } catch (err: any) {
       setOrders([]);
       setHasSearched(true);
+      setError(err?.message || "Error consultando pedidos");
+      console.error(err);
     } finally {
       setIsSearching(false);
     }
@@ -195,20 +203,20 @@ export default function PanelPage() {
             <CardHeader>
               <CardTitle className="text-lg">Buscar Pedido</CardTitle>
               <CardDescription>
-                Ingresa tu email o numero de pedido para ver tus proyectos.
+                Ingresa tu email o tu número de pedido (IW-XXXXXX) para ver tus proyectos.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSearch} className="flex gap-4">
                 <div className="flex-1">
                   <Label htmlFor="search" className="sr-only">
-                    Email o numero de pedido
+                    Email o número de pedido
                   </Label>
                   <Input
                     id="search"
-                    placeholder="tu@email.com o IW-XXXXX"
-                    value={searchEmail}
-                    onChange={(e) => setSearchEmail(e.target.value)}
+                    placeholder="tu@email.com o IW-XXXXXX"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
                   />
                 </div>
                 <Button type="submit" disabled={isSearching}>
@@ -216,6 +224,12 @@ export default function PanelPage() {
                   {isSearching ? "Buscando..." : "Buscar"}
                 </Button>
               </form>
+
+              {error && (
+                <p className="mt-3 text-sm text-red-600">
+                  {error}
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -228,9 +242,10 @@ export default function PanelPage() {
                       Tus Pedidos ({orders.length})
                     </h2>
                   </div>
+
                   <div className="grid gap-6">
                     {orders.map((order) => (
-                      <OrderCard key={order.id} order={order} />
+                      <OrderCard key={order.order_id} order={order} />
                     ))}
                   </div>
                 </div>
@@ -244,7 +259,7 @@ export default function PanelPage() {
                       No encontramos pedidos
                     </h3>
                     <p className="mt-2 text-muted-foreground">
-                      No hay pedidos asociados a este email o numero de pedido.
+                      No hay pedidos asociados a ese dato.
                     </p>
                     <Link href="/servicios">
                       <Button className="mt-6">Ver Planes</Button>
@@ -265,8 +280,7 @@ export default function PanelPage() {
                   Busca tu pedido
                 </h3>
                 <p className="mt-2 text-muted-foreground max-w-sm mx-auto">
-                  Ingresa el email que usaste al comprar o el numero de pedido
-                  que te enviamos para ver el estado de tu proyecto.
+                  Ingresa el email que usaste al comprar o el número de pedido para ver el estado.
                 </p>
               </CardContent>
             </Card>

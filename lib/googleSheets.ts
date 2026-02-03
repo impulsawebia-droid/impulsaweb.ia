@@ -1,18 +1,16 @@
-// lib/googlesheets.ts
+// app/lib/googleSheets.ts
 import { google } from "googleapis";
 
 function requiredEnv(name: string) {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing env var: ${name}`);
-  }
-  return value;
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
 }
 
 function normalizePrivateKey(raw: string) {
   let key = raw.trim();
 
-  // Quitar comillas accidentales
+  // Quita comillas accidentales
   if (
     (key.startsWith('"') && key.endsWith('"')) ||
     (key.startsWith("'") && key.endsWith("'"))
@@ -20,39 +18,21 @@ function normalizePrivateKey(raw: string) {
     key = key.slice(1, -1);
   }
 
-  // Convertir \n literales en saltos reales
+  // Convierte \n literales a saltos reales
   key = key.replace(/\\n/g, "\n");
-
-  // Si viene en base64, intentar decodificar
-  const looksLikeBase64 =
-    !key.includes("BEGIN PRIVATE KEY") &&
-    /^[A-Za-z0-9+/=\\s]+$/.test(key) &&
-    key.length > 200;
-
-  if (looksLikeBase64) {
-    try {
-      const decoded = Buffer.from(key, "base64").toString("utf8");
-      if (decoded.includes("BEGIN PRIVATE KEY")) {
-        key = decoded;
-      }
-    } catch {
-      // ignorar
-    }
-  }
-
-  if (!key.includes("BEGIN PRIVATE KEY")) {
-    throw new Error(
-      "Invalid GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY format"
-    );
-  }
-
   return key;
+}
+
+export function getSpreadsheetId() {
+  // ✅ usa SOLO esta env var (la misma en orders y briefs)
+  return requiredEnv("GOOGLE_SHEETS_SPREADSHEET_ID");
 }
 
 export function getSheetsClient() {
   const clientEmail = requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const privateKeyRaw = requiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
-  const privateKey = normalizePrivateKey(privateKeyRaw);
+  const privateKey = normalizePrivateKey(
+    requiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY")
+  );
 
   const auth = new google.auth.JWT({
     email: clientEmail,
@@ -63,6 +43,26 @@ export function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
-export function getSpreadsheetId() {
-  return requiredEnv("GOOGLE_SHEETS_SPREADSHEET_ID");
+export async function appendRow(sheetName: string, values: (string | number)[]) {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${sheetName}!A:Z`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+}
+
+export async function getSheetValues(sheetName: string, range = "A:Z") {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!${range}`,
+  });
+
+  return res.data.values || [];
 }
