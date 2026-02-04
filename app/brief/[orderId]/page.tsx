@@ -1,6 +1,6 @@
 // app/brief/[orderId]/page.tsx
 "use client";
-import { toast } from "@/components/ui/use-toast";
+
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
@@ -266,10 +266,6 @@ export default function BriefPage() {
         return;
       }
 
-      toast({
-      title: "Brief enviado",
-      description: "Lo recibimos correctamente.",
-      });
       router.push(`/panel/pedido/${orderId}`);
     } catch (e) {
       console.error(e);
