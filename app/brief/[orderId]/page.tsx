@@ -239,17 +239,31 @@ export default function BriefPage() {
 
       const payload = {
         order_id: orderId,
+
+        // paso 1
         business_name: form.businessName,
         business_type: form.businessType,
         target_audience: form.targetAudience,
         competitors: form.competitors,
+
+        // paso 2
         colors: form.colors,
         style: form.style,
+
+        // paso 3
         pages: normalizedPages,
         features: form.features,
         market: rules?.mode === "store" ? form.market : "",
-        content_ready: form.contentReady,
-        notes: form.notes,
+
+        // ✅ paso 4 (ESTO es lo que faltaba)
+        content: form.contentReady,                 // ✅ antes: content_ready
+        additional_notes: form.notes,               // ✅ antes: notes
+
+        // ✅ guardar plan también (sale de la orden que ya cargaste)
+        plan_id: String(order?.plan_id || ""),      // ✅ landing/web/store
+        plan_name: String(order?.plan_name || ""),  // ✅ Landing Page / Web Profesional / etc
+
+        status: "submitted",
       };
 
       const res = await fetch("/api/brief", {
