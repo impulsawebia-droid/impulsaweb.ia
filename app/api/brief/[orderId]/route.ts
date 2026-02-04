@@ -2,7 +2,16 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { findRowByColumn } from "@/lib/googleSheets";
+import { getSheetValues } from "@/lib/googleSheets";
+
+function normOrderId(v: any) {
+  return String(v ?? "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, ""); // 👈 clave: elimina guiones
+}
 
 export async function GET(_req: Request, { params }: { params: { orderId: string } }) {
   try {
@@ -11,15 +20,33 @@ export async function GET(_req: Request, { params }: { params: { orderId: string
       return NextResponse.json({ ok: false, error: "Missing orderId" }, { status: 400 });
     }
 
-    const found = await findRowByColumn("briefs", "order_id", orderId, "A:Z");
+    const values = await getSheetValues("briefs", "A:Z");
+    if (!values || values.length < 2) {
+      return NextResponse.json({ ok: true, exists: false, brief: null });
+    }
 
-    if (!found.row) {
+    const headers = values[0].map((h: any) => String(h).trim());
+    const rows = values.slice(1);
+
+    const idxOrder = headers.findIndex((h) => h === "order_id");
+    if (idxOrder === -1) {
+      return NextResponse.json(
+        { ok: false, error: "briefs sheet missing column: order_id" },
+        { status: 500 }
+      );
+    }
+
+    const target = normOrderId(orderId);
+
+    const row = rows.find((r) => normOrderId(r?.[idxOrder]) === target);
+
+    if (!row) {
       return NextResponse.json({ ok: true, exists: false, brief: null });
     }
 
     const obj: any = {};
-    found.headers.forEach((h: any, i: number) => {
-      obj[String(h).trim()] = found.row?.[i] ?? "";
+    headers.forEach((h: any, i: number) => {
+      obj[h] = row?.[i] ?? "";
     });
 
     return NextResponse.json({ ok: true, exists: true, brief: obj });
