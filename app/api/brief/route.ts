@@ -41,8 +41,14 @@ export async function POST(req: Request) {
     // 2) Leer headers reales de briefs
     const briefsValues = await getSheetValues("briefs", "A1:Z");
     if (!briefsValues || briefsValues.length < 1) {
-      return NextResponse.json({ ok: false, error: "briefs sheet has no headers" }, { status: 500 });
+    throw new Error("No se pudieron leer valores de la hoja briefs (vacío). Verifica spreadsheetId/permisos.");
     }
+
+    const headers = briefsValues[0] || [];
+    if (!headers.length) {
+      throw new Error("La hoja briefs no tiene headers en la fila 1.");
+    }
+
     const briefsHeaders = briefsValues[0].map((h: any) => String(h).trim());
 
     // 3) Traer plan_id y plan_name desde orders (source of truth)
