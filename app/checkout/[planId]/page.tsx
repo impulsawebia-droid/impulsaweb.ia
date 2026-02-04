@@ -114,34 +114,29 @@ export default function CheckoutPage({
       
       console.log("[v0] Sending order:", orderPayload);
       
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(orderPayload),
-      });
+      const res = await fetch("/api/orders", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
 
-      const data = await response.json();
-      console.log("[v0] API Response:", { status: response.status, data });
+const data = await res.json();
 
-      if (!response.ok || !data.ok) {
-        console.error("[v0] Order creation failed:", data.error);
-        throw new Error(data.error || "Error al crear el pedido");
-      }
+if (!res.ok || !data?.ok) {
+  throw new Error(data?.error || "No se pudo crear la orden");
+}
 
-      setOrderId(data.order_id);
-      setIsProcessing(false);
-      setStep("confirm");
+const orderId =
+  data?.order?.order_id || data?.order_id || data?.orderId || data?.id;
 
-      // Redirigir al brief despues de 3 segundos
-      setTimeout(() => {
-        router.push(`/brief/${data.order_id}`);
-      }, 3000);
-    } catch (error) {
-      console.error("Error creating order:", error);
-      setIsProcessing(false);
-      alert("Error al procesar el pedido. Por favor intenta de nuevo.");
-    }
-  };
+if (!orderId) {
+  console.error("Order creation response missing order_id:", data);
+  throw new Error("No se recibió el order_id al crear la orden");
+}
+
+// ✅ aquí ya nunca será undefined
+router.push(`/brief/${encodeURIComponent(orderId)}`);
+
 
   const selectedPayment = paymentMethods.find((p) => p.id === paymentMethod);
 
