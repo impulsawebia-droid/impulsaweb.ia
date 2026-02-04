@@ -115,27 +115,27 @@ export default function CheckoutPage({
       console.log("[v0] Sending order:", orderPayload);
       
       const res = await fetch("/api/orders", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-const data = await res.json();
+    const data = await res.json();
 
-if (!res.ok || !data?.ok) {
-  throw new Error(data?.error || "No se pudo crear la orden");
-}
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || "No se pudo crear la orden");
+    }
 
-const orderId =
-  data?.order?.order_id || data?.order_id || data?.orderId || data?.id;
+    const orderId =
+      data?.order?.order_id || data?.order_id || data?.orderId || data?.id;
 
-if (!orderId) {
-  console.error("Order creation response missing order_id:", data);
-  throw new Error("No se recibió el order_id al crear la orden");
-}
+    if (!orderId) {
+      console.error("Order creation response missing order_id:", data);
+      throw new Error("No se recibió el order_id al crear la orden");
+    }
 
-// ✅ aquí ya nunca será undefined
-router.push(`/brief/${encodeURIComponent(orderId)}`);
+    // ✅ aquí ya nunca será undefined
+    router.push(`/brief/${encodeURIComponent(orderId)}`);
 
 
   const selectedPayment = paymentMethods.find((p) => p.id === paymentMethod);
