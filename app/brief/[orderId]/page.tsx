@@ -1,6 +1,6 @@
 // app/brief/[orderId]/page.tsx
 "use client";
-
+import { toast } from "@/components/ui/use-toast";
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
@@ -28,6 +28,7 @@ import {
   STORE_MARKET_OPTIONS,
   type PlanKey,
 } from "@/lib/briefConfig";
+import { toast } from "@/hooks/use-toast";
 
 type BriefForm = {
   order_id: string;
@@ -265,7 +266,10 @@ export default function BriefPage() {
         return;
       }
 
-      alert("✅ Brief enviado correctamente");
+      toast({
+      title: "Brief enviado",
+      description: "Lo recibimos correctamente.",
+      });
       router.push(`/panel/pedido/${orderId}`);
     } catch (e) {
       console.error(e);
