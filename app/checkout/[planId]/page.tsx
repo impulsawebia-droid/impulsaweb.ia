@@ -1,9 +1,9 @@
 "use client";
 
-import React from "react"
-
-import { useState, use } from "react";
+import { useMemo, useState, use } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,9 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+
 import { plans } from "@/lib/data";
+
 import {
   Check,
   CreditCard,
@@ -21,20 +23,19 @@ import {
   ShieldCheck,
   ArrowLeft,
 } from "lucide-react";
-import Link from "next/link";
 
 const paymentMethods = [
   {
     id: "nequi",
     name: "Nequi",
-    description: "Pago rapido con tu app Nequi",
+    description: "Pago rápido con tu app Nequi",
     icon: Smartphone,
-    instructions: "Numero Nequi: 300 123 4567",
+    instructions: "Número Nequi: 300 123 4567",
   },
   {
     id: "bancolombia",
     name: "Bancolombia",
-    description: "Transferencia o deposito",
+    description: "Transferencia o depósito",
     icon: Building,
     instructions: "Cuenta Ahorros: 123-456789-00 | A nombre de: ImpulsaWeb SAS",
   },
@@ -43,16 +44,18 @@ const paymentMethods = [
     name: "Daviplata",
     description: "Pago desde tu Daviplata",
     icon: Smartphone,
-    instructions: "Numero Daviplata: 300 123 4567",
+    instructions: "Número Daviplata: 300 123 4567",
   },
   {
     id: "card",
-    name: "Tarjeta de Credito/Debito",
+    name: "Tarjeta de Crédito/Débito",
     description: "Visa, Mastercard, American Express",
     icon: CreditCard,
-    instructions: "Seras redirigido a nuestra pasarela de pagos segura",
+    instructions: "Serás redirigido a nuestra pasarela de pagos segura",
   },
-];
+] as const;
+
+type Step = "info" | "payment" | "confirm";
 
 export default function CheckoutPage({
   params,
@@ -61,17 +64,18 @@ export default function CheckoutPage({
 }) {
   const { planId } = use(params);
   const router = useRouter();
-  const plan = plans.find((p) => p.id === planId);
 
-  const [step, setStep] = useState<"info" | "payment" | "confirm">("info");
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    phone: "",
-  });
+  const plan = useMemo(() => plans.find((p) => p.id === planId), [planId]);
+
+  const [step, setStep] = useState<Step>("info");
+  const [formData, setFormData] = useState({ name: "", email: "", phone: "" });
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [orderId, setOrderId] = useState<string>("");
+
+  const selectedPayment = useMemo(
+    () => paymentMethods.find((p) => p.id === paymentMethod),
+    [paymentMethod]
+  );
 
   if (!plan) {
     return (
@@ -110,35 +114,45 @@ export default function CheckoutPage({
         pay_method: paymentMethod,
         pay_type: "total",
         amount: plan.price,
+        city: "", // opcional si luego lo pides
       };
-      
-      console.log("[v0] Sending order:", orderPayload);
-      
+
+      console.log("[checkout] Sending order:", orderPayload);
+
       const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderPayload),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok || !data?.ok) {
-      throw new Error(data?.error || "No se pudo crear la orden");
+      if (!res.ok || !data?.ok) {
+        console.error("[checkout] Order create error:", data);
+        throw new Error(data?.error || "No se pudo crear la orden");
+      }
+
+      const createdOrderId =
+        data?.order?.order_id || data?.order_id || data?.orderId || data?.id;
+
+      if (!createdOrderId) {
+        console.error("[checkout] Missing order_id in response:", data);
+        throw new Error("No se recibió el order_id al crear la orden");
+      }
+
+      // (opcional) mostrar confirmación corta antes de redirigir
+      setStep("confirm");
+
+      setTimeout(() => {
+        router.push(`/brief/${encodeURIComponent(createdOrderId)}`);
+      }, 900);
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Error al procesar el pedido. Por favor intenta de nuevo.");
+      setIsProcessing(false);
+      return;
     }
-
-    const orderId =
-      data?.order?.order_id || data?.order_id || data?.orderId || data?.id;
-
-    if (!orderId) {
-      console.error("Order creation response missing order_id:", data);
-      throw new Error("No se recibió el order_id al crear la orden");
-    }
-
-    // ✅ aquí ya nunca será undefined
-    router.push(`/brief/${encodeURIComponent(orderId)}`);
-
-
-  const selectedPayment = paymentMethods.find((p) => p.id === paymentMethod);
+  };
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -158,7 +172,7 @@ export default function CheckoutPage({
               {step === "info" && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Informacion de Contacto</CardTitle>
+                    <CardTitle>Información de Contacto</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <form onSubmit={handleInfoSubmit} className="space-y-6">
@@ -188,13 +202,12 @@ export default function CheckoutPage({
                           required
                         />
                         <p className="text-xs text-muted-foreground">
-                          Te enviaremos actualizaciones sobre tu proyecto a este
-                          email.
+                          Te enviaremos actualizaciones sobre tu proyecto a este email.
                         </p>
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="phone">Telefono / WhatsApp</Label>
+                        <Label htmlFor="phone">Teléfono / WhatsApp</Label>
                         <Input
                           id="phone"
                           placeholder="+57 300 000 0000"
@@ -217,7 +230,7 @@ export default function CheckoutPage({
               {step === "payment" && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Metodo de Pago</CardTitle>
+                    <CardTitle>Método de Pago</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6">
                     <RadioGroup
@@ -236,10 +249,7 @@ export default function CheckoutPage({
                                 : "border-border hover:border-primary/50"
                             }`}
                           >
-                            <RadioGroupItem
-                              value={method.id}
-                              className="mt-1"
-                            />
+                            <RadioGroupItem value={method.id} className="mt-1" />
                             <div className="flex-1">
                               <div className="flex items-center gap-3">
                                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
@@ -270,8 +280,8 @@ export default function CheckoutPage({
                         </p>
                         {selectedPayment.id !== "card" && (
                           <p className="text-xs text-muted-foreground mt-2">
-                            Despues de realizar el pago, te pediremos el
-                            comprobante en el siguiente paso.
+                            Después de realizar el pago, te pediremos el comprobante
+                            en el siguiente paso.
                           </p>
                         )}
                       </div>
@@ -282,8 +292,9 @@ export default function CheckoutPage({
                         variant="outline"
                         onClick={() => setStep("info")}
                         className="flex-1"
+                        disabled={isProcessing}
                       >
-                        Atras
+                        Atrás
                       </Button>
                       <Button
                         onClick={handlePaymentSubmit}
@@ -304,14 +315,13 @@ export default function CheckoutPage({
                       <Check className="h-8 w-8" />
                     </div>
                     <h2 className="mt-6 text-2xl font-bold text-foreground">
-                      Pedido Confirmado!
+                      ¡Pedido Confirmado!
                     </h2>
                     <p className="mt-2 text-muted-foreground">
-                      Gracias por tu compra, {formData.name.split(" ")[0]}!
+                      Gracias por tu compra, {formData.name.split(" ")[0] || "!"}
                     </p>
                     <p className="mt-4 text-sm text-muted-foreground">
-                      Seras redirigido al formulario de brief para contarnos mas
-                      sobre tu proyecto...
+                      Serás redirigido al formulario de brief para contarnos más sobre tu proyecto...
                     </p>
                     <div className="mt-6 animate-pulse">
                       <div className="mx-auto h-2 w-32 rounded-full bg-primary/20">
@@ -344,11 +354,9 @@ export default function CheckoutPage({
                   <Separator />
 
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-foreground">
-                      Incluye:
-                    </p>
+                    <p className="text-sm font-medium text-foreground">Incluye:</p>
                     <ul className="space-y-1.5">
-                      {plan.features.slice(0, 5).map((feature, i) => (
+                      {plan.features.slice(0, 5).map((feature: string, i: number) => (
                         <li
                           key={i}
                           className="flex items-start gap-2 text-sm text-muted-foreground"
@@ -359,7 +367,7 @@ export default function CheckoutPage({
                       ))}
                       {plan.features.length > 5 && (
                         <li className="text-sm text-primary">
-                          +{plan.features.length - 5} caracteristicas mas
+                          +{plan.features.length - 5} características más
                         </li>
                       )}
                     </ul>
