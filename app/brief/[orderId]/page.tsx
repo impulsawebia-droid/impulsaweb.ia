@@ -1,62 +1,48 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import React, { useEffect, useMemo, useState, use } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Check, ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
+import { plans } from "@/lib/data";
 
-const pageOptions = [
-  { id: "inicio", label: "Inicio / Home" },
-  { id: "nosotros", label: "Nosotros / Quienes Somos" },
-  { id: "servicios", label: "Servicios" },
-  { id: "productos", label: "Productos / Catálogo" },
-  { id: "portafolio", label: "Portafolio / Proyectos" },
-  { id: "blog", label: "Blog / Noticias" },
-  { id: "contacto", label: "Contacto" },
-  { id: "faq", label: "Preguntas Frecuentes" },
-  { id: "testimonios", label: "Testimonios" },
-];
+type UiOrder = { order_id: string; plan_id: string; plan_name: string };
 
-const featureOptions = [
-  { id: "whatsapp", label: "Botón de WhatsApp" },
-  { id: "formulario", label: "Formulario de contacto" },
-  { id: "galeria", label: "Galería de imágenes" },
-  { id: "mapa", label: "Mapa de ubicación" },
-  { id: "redes", label: "Links a redes sociales" },
-  { id: "newsletter", label: "Suscripción a newsletter" },
-  { id: "chat", label: "Chat en vivo" },
-  { id: "reservas", label: "Sistema de reservas/citas" },
-];
+const pageLabels: Record<string, string> = {
+  inicio: "Inicio / Home",
+  nosotros: "Nosotros / Quiénes Somos",
+  servicios: "Servicios",
+  productos: "Productos / Catálogo",
+  portafolio: "Portafolio / Proyectos",
+  blog: "Blog / Noticias",
+  contacto: "Contacto",
+  faq: "Preguntas Frecuentes",
+  testimonios: "Testimonios",
+  categoria: "Categorías",
+  carrito: "Carrito",
+  checkout: "Checkout",
+  politicas: "Políticas",
+};
 
-const styleOptions = [
-  { value: "minimalista", label: "Minimalista y limpio" },
-  { value: "corporativo", label: "Corporativo y profesional" },
-  { value: "moderno", label: "Moderno y dinámico" },
-  { value: "elegante", label: "Elegante y sofisticado" },
-  { value: "juvenil", label: "Juvenil y colorido" },
-  { value: "clasico", label: "Clásico y tradicional" },
-];
+const featureLabels: Record<string, string> = {
+  whatsapp: "Botón de WhatsApp",
+  formulario_contacto: "Formulario de contacto",
+  galeria: "Galería de imágenes",
+  mapa: "Mapa de ubicación",
+  newsletter: "Suscripción a newsletter",
+  chat_en_vivo: "Chat en vivo",
+  sistema_reservas: "Sistema de reservas/citas",
+  pasarela_pagos: "Pasarela de pagos",
+  carrito: "Carrito de compras",
+  envios: "Integración envíos",
+  inventario: "Gestión inventario",
+};
 
 export default function BriefPage({
   params,
@@ -66,128 +52,143 @@ export default function BriefPage({
   const { orderId } = use(params);
   const router = useRouter();
 
+  const [order, setOrder] = useState<UiOrder | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const [step, setStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
-    businessName: "",
-    businessType: "",
-    targetAudience: "",
-    competitors: "",
-    colors: "",
-    style: "",
-    pages: [] as string[],
-    features: [] as string[],
-    content: "",
-    additionalNotes: "",
-  });
+  const [businessName, setBusinessName] = useState("");
+  const [businessType, setBusinessType] = useState("");
+  const [targetAudience, setTargetAudience] = useState("");
+  const [competitors, setCompetitors] = useState("");
 
-  // ✅ Si ya existe brief en Sheets, marca como submitted y no lo vuelve a enviar
+  const [colors, setColors] = useState("");
+  const [style, setStyle] = useState("");
+
+  const [pages, setPages] = useState<string[]>([]);
+  const [features, setFeatures] = useState<string[]>([]);
+
+  const [hasContent, setHasContent] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const plan = useMemo(() => {
+    if (!order) return null;
+    return plans.find((p) => p.id === order.plan_id) || null;
+  }, [order]);
+
   useEffect(() => {
-    const check = async () => {
+    const run = async () => {
       try {
-        const res = await fetch(`/api/brief/${orderId}`, { cache: "no-store" });
-        if (res.ok) {
-          setSubmitted(true);
+        setLoading(true);
+        const res = await fetch(`/api/orders?order_id=${encodeURIComponent(orderId)}`, { cache: "no-store" });
+        const data = await res.json();
+
+        if (!res.ok || !data?.ok || !data.orders?.length) {
+          setOrder(null);
+          setLoading(false);
+          return;
         }
-      } catch {
-        // no pasa nada, simplemente no existe aún
+
+        const o = data.orders[0];
+        setOrder({
+          order_id: String(o.order_id || orderId),
+          plan_id: String(o.plan_id || ""),
+          plan_name: String(o.plan_name || ""),
+        });
+
+        setLoading(false);
+      } catch (e) {
+        console.error(e);
+        setOrder(null);
+        setLoading(false);
       }
     };
-    check();
+    run();
   }, [orderId]);
 
-  const totalSteps = 4;
-  const progress = (step / totalSteps) * 100;
+  const allowedPages = plan?.allowedPages || [];
+  const allowedFeatures = plan?.allowedFeatures || [];
+  const maxPages = (plan as any)?.limits?.maxPages ?? 999;
 
-  const handlePageToggle = (pageId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      pages: prev.pages.includes(pageId)
-        ? prev.pages.filter((p) => p !== pageId)
-        : [...prev.pages, pageId],
-    }));
+  const toggle = (arr: string[], value: string) =>
+    arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value];
+
+  const nextDisabled = () => {
+    if (step === 1) return !businessName || !businessType || !targetAudience;
+    if (step === 2) return !colors || !style;
+    if (step === 3) return pages.length === 0 || pages.length > maxPages;
+    if (step === 4) return false;
+    return false;
   };
 
-  const handleFeatureToggle = (featureId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      features: prev.features.includes(featureId)
-        ? prev.features.filter((f) => f !== featureId)
-        : [...prev.features, featureId],
-    }));
-  };
+  const submitBrief = async () => {
+    try {
+      // Validación final
+      if (!order) return alert("Orden no encontrada");
+      if (!businessName || !businessType || !targetAudience) return alert("Completa la información del negocio");
+      if (!colors || !style) return alert("Completa colores y estilo");
+      if (!pages.length) return alert("Selecciona al menos una página");
+      if (pages.length > maxPages) return alert(`Este plan permite máximo ${maxPages} páginas`);
 
-  const handleSubmit = async () => {
-  setIsSubmitting(true);
+      const payload = {
+        order_id: order.order_id,
+        business_name: businessName,
+        business_type: businessType,
+        target_audience: targetAudience,
+        competitors,
+        colors,
+        style,
+        pages,
+        features,
+        has_content: hasContent,
+        notes,
+      };
 
-  try {
-    const payload = {
-      order_id: orderId,
+      const res = await fetch("/api/brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-      business_name: formData.businessName,
-      business_type: formData.businessType,
-      target_audience: formData.targetAudience,
-      competitors: formData.competitors,
-      colors: formData.colors,
-      style: formData.style,
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        console.error("brief post error:", data);
+        alert(data?.error || "Error al enviar el brief. Intenta de nuevo.");
+        return;
+      }
 
-      pages: formData.pages,       // array
-      features: formData.features, // array
-
-      content: formData.content,
-      additional_notes: formData.additionalNotes,
-    };
-
-    const res = await fetch("/api/brief", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || !data?.ok) {
-      console.error("POST /api/brief error:", data);
-      alert(data?.error || "Error al enviar el brief. Por favor intenta de nuevo.");
-      setIsSubmitting(false);
-      return;
+      alert("✅ Brief enviado correctamente");
+      router.push(`/panel/pedido/${order.order_id}`);
+    } catch (e) {
+      console.error(e);
+      alert("Error inesperado al enviar el brief");
     }
+  };
 
-    setSubmitted(true);
-  } catch (err) {
-    console.error(err);
-    alert("Error inesperado enviando el brief.");
-  } finally {
-    setIsSubmitting(false);
-  }
-};
-
-
-  if (submitted) {
+  if (loading) {
     return (
       <div className="flex min-h-screen flex-col">
         <Header />
-        <main className="flex-1 flex items-center justify-center bg-background py-12">
-          <Card className="max-w-lg mx-4">
-            <CardContent className="py-12 text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent/10 text-accent">
-                <Check className="h-8 w-8" />
-              </div>
-              <h2 className="mt-6 text-2xl font-bold text-foreground">
-                ¡Brief completado!
-              </h2>
-              <p className="mt-2 text-muted-foreground">
-                Gracias por completar el brief. Nuestro equipo revisará la
-                información y continuará el proceso.
-              </p>
-              <Button className="mt-6" onClick={() => router.push("/panel")}>
-                Ir a Mi Panel
-              </Button>
-            </CardContent>
-          </Card>
+        <main className="flex-1 flex items-center justify-center">
+          <p className="text-muted-foreground">Cargando...</p>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (!order || !plan) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <main className="flex-1 flex items-center justify-center text-center px-4">
+          <div>
+            <h1 className="text-2xl font-bold">Orden no encontrada</h1>
+            <p className="text-muted-foreground mt-2">Verifica que tengas el enlace correcto.</p>
+            <Link href="/panel">
+              <Button className="mt-4">Ir al Panel</Button>
+            </Link>
+          </div>
         </main>
         <Footer />
       </div>
@@ -197,276 +198,149 @@ export default function BriefPage({
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
-
-      <main className="flex-1 bg-background py-12">
-        <div className="mx-auto max-w-2xl px-4">
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h1 className="text-2xl font-bold text-foreground">
-                Brief del Proyecto
-              </h1>
-              <span className="text-sm text-muted-foreground">
-                Paso {step} de {totalSteps}
-              </span>
-            </div>
-            <Progress value={progress} className="h-2" />
-
-            {loadError && (
-              <p className="mt-3 text-sm text-red-600">
-                Error: {loadError}
-              </p>
-            )}
+      <main className="flex-1 bg-background py-10">
+        <div className="mx-auto max-w-3xl px-4 lg:px-8">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold">Brief del Proyecto</h1>
+            <p className="text-muted-foreground">
+              Pedido <b>{order.order_id}</b> • Plan <b>{order.plan_name}</b> • Paso {step} de 4
+            </p>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {step === 1 && "Sobre tu Negocio"}
-                {step === 2 && "Estilo y Preferencias"}
-                {step === 3 && "Estructura de la Página"}
-                {step === 4 && "Contenido y Notas"}
-              </CardTitle>
-              <CardDescription>
-                {step === 1 &&
-                  "Cuéntanos sobre tu negocio para entender mejor tus necesidades."}
-                {step === 2 &&
-                  "Define el estilo visual que quieres para tu página."}
-                {step === 3 && "Selecciona las páginas y funciones que necesitas."}
-                {step === 4 &&
-                  "Agrega contenido adicional o instrucciones especiales."}
-              </CardDescription>
-            </CardHeader>
+          {step === 1 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Sobre tu Negocio</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="space-y-2">
+                  <Label>Nombre de tu negocio o marca</Label>
+                  <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Ej: Restaurante El Sabor" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Tipo de negocio</Label>
+                  <Input value={businessType} onChange={(e) => setBusinessType(e.target.value)} placeholder="Ej: Comida colombiana" />
+                </div>
+                <div className="space-y-2">
+                  <Label>¿Quién es tu cliente ideal?</Label>
+                  <Textarea value={targetAudience} onChange={(e) => setTargetAudience(e.target.value)} placeholder="Ej: Familias en Bogotá que buscan..." />
+                </div>
+                <div className="space-y-2">
+                  <Label>Competidores o páginas similares (opcional)</Label>
+                  <Textarea value={competitors} onChange={(e) => setCompetitors(e.target.value)} placeholder="Ej: www.ejemplo.com - me gusta su..." />
+                </div>
 
-            <CardContent className="space-y-6">
-              {step === 1 && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="businessName">
-                      Nombre de tu negocio o marca
-                    </Label>
-                    <Input
-                      id="businessName"
-                      placeholder="Ej: Restaurante El Sabor"
-                      value={formData.businessName}
-                      onChange={(e) =>
-                        setFormData({ ...formData, businessName: e.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="businessType">Tipo de negocio</Label>
-                    <Input
-                      id="businessType"
-                      placeholder="Ej: Restaurante de comida colombiana"
-                      value={formData.businessType}
-                      onChange={(e) =>
-                        setFormData({ ...formData, businessType: e.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="targetAudience">¿Quién es tu cliente ideal?</Label>
-                    <Textarea
-                      id="targetAudience"
-                      placeholder="Ej: Familias en Bogotá que buscan..."
-                      value={formData.targetAudience}
-                      onChange={(e) =>
-                        setFormData({ ...formData, targetAudience: e.target.value })
-                      }
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="competitors">
-                      Competidores o páginas similares (opcional)
-                    </Label>
-                    <Textarea
-                      id="competitors"
-                      placeholder="Ej: www.ejemplo.com - me gusta su..."
-                      value={formData.competitors}
-                      onChange={(e) =>
-                        setFormData({ ...formData, competitors: e.target.value })
-                      }
-                      rows={3}
-                    />
-                  </div>
-                </>
-              )}
-
-              {step === 2 && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="colors">Colores de tu marca</Label>
-                    <Input
-                      id="colors"
-                      placeholder="Ej: Azul, blanco, dorado"
-                      value={formData.colors}
-                      onChange={(e) =>
-                        setFormData({ ...formData, colors: e.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Estilo que prefieres</Label>
-                    <Select
-                      value={formData.style}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, style: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona un estilo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {styleOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="rounded-xl bg-primary/5 border border-primary/20 p-4">
-                    <div className="flex items-start gap-3">
-                      <Sparkles className="h-5 w-5 text-primary mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-foreground">
-                          Tip: Comparte ejemplos
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Si hay páginas web que te gustan, escríbelas en las notas.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {step === 3 && (
-                <>
-                  <div className="space-y-3">
-                    <Label>¿Qué páginas necesitas?</Label>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {pageOptions.map((page) => (
-                        <label
-                          key={page.id}
-                          className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-all ${
-                            formData.pages.includes(page.id)
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50"
-                          }`}
-                        >
-                          <Checkbox
-                            checked={formData.pages.includes(page.id)}
-                            onCheckedChange={() => handlePageToggle(page.id)}
-                          />
-                          <span className="text-sm">{page.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label>Funcionalidades especiales</Label>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {featureOptions.map((feature) => (
-                        <label
-                          key={feature.id}
-                          className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-all ${
-                            formData.features.includes(feature.id)
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50"
-                          }`}
-                        >
-                          <Checkbox
-                            checked={formData.features.includes(feature.id)}
-                            onCheckedChange={() => handleFeatureToggle(feature.id)}
-                          />
-                          <span className="text-sm">{feature.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {step === 4 && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="content">
-                      ¿Tienes contenido listo? (textos, fotos, logo)
-                    </Label>
-                    <Textarea
-                      id="content"
-                      placeholder="Ej: Tengo fotos, logo y textos..."
-                      value={formData.content}
-                      onChange={(e) =>
-                        setFormData({ ...formData, content: e.target.value })
-                      }
-                      rows={4}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="additionalNotes">Notas adicionales</Label>
-                    <Textarea
-                      id="additionalNotes"
-                      placeholder="Cualquier instrucción especial..."
-                      value={formData.additionalNotes}
-                      onChange={(e) =>
-                        setFormData({ ...formData, additionalNotes: e.target.value })
-                      }
-                      rows={4}
-                    />
-                  </div>
-
-                  <div className="rounded-xl bg-accent/10 border border-accent/20 p-4">
-                    <p className="text-sm text-foreground">
-                      Después de enviar este brief, te contactaremos por WhatsApp o
-                      email para coordinar el envío de archivos.
-                    </p>
-                  </div>
-                </>
-              )}
-
-              <div className="flex gap-4 pt-4">
-                {step > 1 && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setStep(step - 1)}
-                    className="flex-1"
-                    disabled={isSubmitting}
-                  >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
-                    Anterior
+                <div className="flex justify-end">
+                  <Button onClick={() => setStep(2)} disabled={nextDisabled()}>
+                    Siguiente →
                   </Button>
-                )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-                {step < totalSteps ? (
-                  <Button onClick={() => setStep(step + 1)} className="flex-1" disabled={isSubmitting}>
-                    Siguiente
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleSubmit}
-                    disabled={isSubmitting}
-                    className="flex-1"
-                  >
-                    {isSubmitting ? "Enviando..." : "Enviar Brief"}
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          {step === 2 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Estilo y Preferencias</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="space-y-2">
+                  <Label>Colores de tu marca</Label>
+                  <Input value={colors} onChange={(e) => setColors(e.target.value)} placeholder="Ej: azul, blanco, dorado" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Estilo (obligatorio)</Label>
+                  <Input value={style} onChange={(e) => setStyle(e.target.value)} placeholder="Ej: moderno, minimalista, corporativo..." />
+                </div>
+
+                <div className="flex justify-between">
+                  <Button variant="outline" onClick={() => setStep(1)}>← Anterior</Button>
+                  <Button onClick={() => setStep(3)} disabled={nextDisabled()}>Siguiente →</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 3 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Estructura de la Página</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div>
+                  <p className="font-medium mb-2">¿Qué páginas necesitas?</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {allowedPages.map((p) => (
+                      <label key={p} className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pages.includes(p)}
+                          onChange={() => setPages((prev) => toggle(prev, p))}
+                        />
+                        <span>{pageLabels[p] || p}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Este plan permite máximo <b>{maxPages}</b> páginas. Seleccionadas: <b>{pages.length}</b>
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-medium mb-2">Funcionalidades especiales</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {allowedFeatures.map((f) => (
+                      <label key={f} className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={features.includes(f)}
+                          onChange={() => setFeatures((prev) => toggle(prev, f))}
+                        />
+                        <span>{featureLabels[f] || f}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-between">
+                  <Button variant="outline" onClick={() => setStep(2)}>← Anterior</Button>
+                  <Button onClick={() => setStep(4)} disabled={nextDisabled()}>Siguiente →</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 4 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Contenido y Notas</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="space-y-2">
+                  <Label>¿Tienes contenido listo? (textos, fotos, logo)</Label>
+                  <Textarea value={hasContent} onChange={(e) => setHasContent(e.target.value)} placeholder="Ej: Tengo fotos, logo y textos..." />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Notas adicionales</Label>
+                  <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Cualquier instrucción especial..." />
+                </div>
+
+                <div className="rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">
+                  Después de enviar este brief, te contactaremos por WhatsApp o email para coordinar el envío de archivos.
+                </div>
+
+                <div className="flex justify-between">
+                  <Button variant="outline" onClick={() => setStep(3)}>← Anterior</Button>
+                  <Button onClick={submitBrief}>Enviar Brief</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
         </div>
       </main>
-
       <Footer />
     </div>
   );

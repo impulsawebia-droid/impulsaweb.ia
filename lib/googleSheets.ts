@@ -1,4 +1,4 @@
-// app/lib/googleSheets.ts
+// lib/googleSheets.ts
 import { google } from "googleapis";
 
 function requiredEnv(name: string) {
@@ -24,7 +24,7 @@ function normalizePrivateKey(raw: string) {
 }
 
 export function getSpreadsheetId() {
-  // ✅ usa SOLO esta env var (la misma en orders y briefs)
+  // ✅ Una sola env var para toda la app
   return requiredEnv("GOOGLE_SHEETS_SPREADSHEET_ID");
 }
 

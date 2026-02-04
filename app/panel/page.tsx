@@ -1,7 +1,6 @@
-// app/panel/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
@@ -11,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import type { Order, OrderStatus } from "@/lib/types";
 import {
   Package,
   Clock,
@@ -22,74 +22,52 @@ import {
   Sparkles,
 } from "lucide-react";
 
-type OrderStatus = "pending_payment" | "paid" | "in_progress" | "review" | "completed";
-
-type Order = {
-  created_at?: string;
-  order_id: string;
-  plan_name: string;
-  customer_name?: string;
-  email: string;
-  phone?: string;
-  pay_method?: string;
-  amount?: string | number;
-  status: OrderStatus | string;
-};
-
-const statusConfig: Record<OrderStatus, { label: string; color: string; icon: React.ElementType }> = {
+const statusConfig: Record<
+  OrderStatus,
+  { label: string; color: string; icon: React.ElementType }
+> = {
   pending_payment: { label: "Pendiente de Pago", color: "bg-amber-100 text-amber-800", icon: Clock },
   paid: { label: "Pago Recibido", color: "bg-blue-100 text-blue-800", icon: CheckCircle },
   in_progress: { label: "En Desarrollo", color: "bg-purple-100 text-purple-800", icon: Sparkles },
-  review: { label: "En Revisión", color: "bg-orange-100 text-orange-800", icon: AlertCircle },
+  review: { label: "En Revision", color: "bg-orange-100 text-orange-800", icon: AlertCircle },
   completed: { label: "Completado", color: "bg-green-100 text-green-800", icon: CheckCircle },
 };
 
-function normalizeStatus(s: string): OrderStatus {
-  const v = (s || "").trim() as OrderStatus;
-  return (v in statusConfig ? v : "pending_payment") as OrderStatus;
-}
-
-async function safeJson(res: Response) {
-  const text = await res.text();
-  try {
-    return text ? JSON.parse(text) : null;
-  } catch {
-    return { ok: false, error: text || "Invalid JSON" };
-  }
-}
-
-async function fetchBrief(orderId: string) {
-  const res = await fetch(`/api/brief?order_id=${encodeURIComponent(orderId)}`, { cache: "no-store" });
-  const data = await safeJson(res);
-  if (!res.ok) return null;
-  return data?.brief || null;
+function mapApiOrderToUi(o: any): Order {
+  return {
+    id: String(o.order_id || ""),
+    planId: String(o.plan_id || ""),
+    planName: String(o.plan_name || ""),
+    customerName: String(o.customer_name || ""),
+    customerEmail: String(o.email || ""),
+    customerPhone: String(o.phone || ""),
+    city: String(o.city || ""),
+    paymentMethod: (String(o.pay_method || "nequi") as any),
+    payType: String(o.pay_type || ""),
+    totalPrice: Number(o.amount || 0),
+    createdAt: String(o.created_at || new Date().toISOString()),
+    status: (String(o.status || "pending_payment") as any),
+    notes: String(o.notes || ""),
+    proofUrl: String(o.proof_url || ""),
+  };
 }
 
 function OrderCard({ order }: { order: Order }) {
-  const statusKey = normalizeStatus(String(order.status || ""));
-  const status = statusConfig[statusKey];
+  const status = statusConfig[order.status];
   const StatusIcon = status.icon;
-
-  const createdDate = order.created_at
-    ? new Date(order.created_at).toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "numeric" })
-    : "-";
-
-  const totalNumber =
-    typeof order.amount === "number" ? order.amount : Number(String(order.amount || "0").replace(/[^\d]/g, "")) || 0;
-
-  const [brief, setBrief] = useState<any>(null);
-
-  useEffect(() => {
-    fetchBrief(order.order_id).then(setBrief);
-  }, [order.order_id]);
+  const createdDate = new Date(order.createdAt).toLocaleDateString("es-CO", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div>
-            <CardTitle className="text-lg">{order.plan_name}</CardTitle>
-            <CardDescription className="mt-1">Pedido: {order.order_id}</CardDescription>
+            <CardTitle className="text-lg">{order.planName}</CardTitle>
+            <CardDescription className="mt-1">Pedido: {order.id}</CardDescription>
           </div>
           <Badge className={status.color}>
             <StatusIcon className="h-3 w-3 mr-1" />
@@ -106,36 +84,32 @@ function OrderCard({ order }: { order: Order }) {
           </div>
           <div>
             <p className="text-muted-foreground">Total</p>
-            <p className="font-medium">${totalNumber.toLocaleString("es-CO")} COP</p>
+            <p className="font-medium">${order.totalPrice.toLocaleString("es-CO")} COP</p>
           </div>
         </div>
 
         <Separator />
 
+        {/* Aquí NO hacemos fetch del brief para no disparar muchos requests.
+           El detalle del pedido sí lo valida y muestra. */}
         <div className="space-y-3">
           <p className="text-sm font-medium">Estado del Brief:</p>
-          {brief ? (
-            <div className="flex items-center gap-2 text-sm text-accent">
-              <CheckCircle className="h-4 w-4" />
-              <span>Brief completado</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-amber-600">
+              <AlertCircle className="h-4 w-4" />
+              <span>Verificar en detalles</span>
             </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm text-amber-600">
-                <AlertCircle className="h-4 w-4" />
-                <span>Brief pendiente</span>
-              </div>
-              <Link href={`/brief/${order.order_id}`}>
-                <Button size="sm" variant="outline" className="gap-1 bg-transparent">
-                  Completar <ChevronRight className="h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-          )}
+            <Link href={`/brief/${order.id}`}>
+              <Button size="sm" variant="outline" className="gap-1 bg-transparent">
+                Completar
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         </div>
 
         <div className="pt-2">
-          <Link href={`/panel/pedido/${order.order_id}`}>
+          <Link href={`/panel/pedido/${order.id}`}>
             <Button variant="outline" className="w-full gap-2 bg-transparent">
               <FileText className="h-4 w-4" />
               Ver Detalles
@@ -149,46 +123,56 @@ function OrderCard({ order }: { order: Order }) {
 
 export default function PanelPage() {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [searchEmail, setSearchEmail] = useState("");
+  const [searchValue, setSearchValue] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  const isEmail = useMemo(() => searchValue.includes("@"), [searchValue]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSearching(true);
 
     try {
-      const q = searchEmail.trim();
-
-      const url =
-        !q ? "/api/orders" : q.includes("@")
+      const q = searchValue.trim();
+      const url = q
+        ? isEmail
           ? `/api/orders?email=${encodeURIComponent(q)}`
-          : `/api/orders?order_id=${encodeURIComponent(q)}`;
+          : `/api/orders?order_id=${encodeURIComponent(q)}`
+        : `/api/orders`;
 
       const res = await fetch(url, { cache: "no-store" });
-      const data = await safeJson(res);
+      const data = await res.json();
 
       if (!res.ok || !data?.ok) {
-        console.error("Orders API error:", res.status, data);
-        alert(data?.error || "Error consultando pedidos");
+        console.error("orders fetch failed:", data);
         setOrders([]);
         setHasSearched(true);
+        setIsSearching(false);
         return;
       }
 
-      setOrders((data.orders || []) as Order[]);
+      const mapped = (data.orders || []).map(mapApiOrderToUi);
+      setOrders(mapped);
       setHasSearched(true);
+      setIsSearching(false);
     } catch (err) {
       console.error(err);
-      alert("Error inesperado consultando pedidos");
-    } finally {
+      setOrders([]);
+      setHasSearched(true);
       setIsSearching(false);
     }
   };
 
+  useEffect(() => {
+    // No cargamos automáticamente todos los pedidos en producción.
+    // El usuario debe buscar por email o pedido.
+  }, []);
+
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
+
       <main className="flex-1 bg-background py-12">
         <div className="mx-auto max-w-4xl px-4 lg:px-8">
           <div className="mb-8">
@@ -205,13 +189,13 @@ export default function PanelPage() {
               <form onSubmit={handleSearch} className="flex gap-4">
                 <div className="flex-1">
                   <Label htmlFor="search" className="sr-only">
-                    Email o número de pedido
+                    Email o numero de pedido
                   </Label>
                   <Input
                     id="search"
                     placeholder="tu@email.com o IW-XXXXX"
-                    value={searchEmail}
-                    onChange={(e) => setSearchEmail(e.target.value)}
+                    value={searchValue}
+                    onChange={(e) => setSearchValue(e.target.value)}
                   />
                 </div>
                 <Button type="submit" disabled={isSearching}>
@@ -229,9 +213,10 @@ export default function PanelPage() {
                   <div className="flex items-center justify-between">
                     <h2 className="text-xl font-semibold text-foreground">Tus Pedidos ({orders.length})</h2>
                   </div>
+
                   <div className="grid gap-6">
                     {orders.map((order) => (
-                      <OrderCard key={order.order_id} order={order} />
+                      <OrderCard key={order.id} order={order} />
                     ))}
                   </div>
                 </div>
@@ -242,7 +227,9 @@ export default function PanelPage() {
                       <Package className="h-8 w-8 text-muted-foreground" />
                     </div>
                     <h3 className="mt-6 text-lg font-semibold text-foreground">No encontramos pedidos</h3>
-                    <p className="mt-2 text-muted-foreground">No hay pedidos asociados a este email o número de pedido.</p>
+                    <p className="mt-2 text-muted-foreground">
+                      No hay pedidos asociados a este email o número de pedido.
+                    </p>
                     <Link href="/servicios">
                       <Button className="mt-6">Ver Planes</Button>
                     </Link>
@@ -260,13 +247,14 @@ export default function PanelPage() {
                 </div>
                 <h3 className="mt-6 text-lg font-semibold text-foreground">Busca tu pedido</h3>
                 <p className="mt-2 text-muted-foreground max-w-sm mx-auto">
-                  Ingresa el email que usaste al comprar o el número de pedido para ver el estado de tu proyecto.
+                  Ingresa el email que usaste al comprar o el número de pedido que te enviamos para ver el estado.
                 </p>
               </CardContent>
             </Card>
           )}
         </div>
       </main>
+
       <Footer />
     </div>
   );

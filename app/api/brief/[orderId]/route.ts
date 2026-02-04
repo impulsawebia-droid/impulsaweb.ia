@@ -4,8 +4,8 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { getSheetValues } from "@/lib/googleSheets";
 
-function findIndex(headers: any[], name: string) {
-  return headers.findIndex((h) => String(h).trim() === name);
+function findIndex(headers: string[], name: string) {
+  return headers.findIndex((h) => h.trim() === name);
 }
 
 export async function GET(
@@ -13,7 +13,7 @@ export async function GET(
   { params }: { params: { orderId: string } }
 ) {
   try {
-    const orderId = params.orderId;
+    const orderId = String(params.orderId || "").trim();
 
     if (!orderId) {
       return NextResponse.json(
@@ -23,12 +23,11 @@ export async function GET(
     }
 
     const values = await getSheetValues("briefs", "A:Z");
-
-    if (values.length < 2) {
+    if (!values || values.length < 2) {
       return NextResponse.json({ ok: true, brief: null });
     }
 
-    const headers = values[0];
+    const headers = (values[0] || []).map((h: any) => String(h).trim());
     const rows = values.slice(1);
 
     const idxOrder = findIndex(headers, "order_id");
@@ -39,15 +38,22 @@ export async function GET(
       );
     }
 
-    const row = rows.find((r) => String(r?.[idxOrder] || "") === orderId);
+    const row = rows.find((r) => String(r?.[idxOrder] || "").trim() === orderId);
+    if (!row) return NextResponse.json({ ok: true, brief: null });
 
-    if (!row) {
-      return NextResponse.json({ ok: true, brief: null });
-    }
-
-    // Convertimos la fila a objeto con headers
     const obj: any = {};
-    headers.forEach((h: any, i: number) => (obj[String(h).trim()] = row[i]));
+    headers.forEach((h: string, i: number) => (obj[h] = row?.[i] ?? ""));
+
+    // parse pages/features si vienen como "a,b,c"
+    obj.pages = String(obj.pages || "")
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+
+    obj.features = String(obj.features || "")
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter(Boolean);
 
     return NextResponse.json({ ok: true, brief: obj });
   } catch (err: any) {

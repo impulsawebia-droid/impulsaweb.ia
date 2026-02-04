@@ -12,15 +12,29 @@ function generateOrderId() {
   return `IW-${yy}${mm}-${rand}`;
 }
 
-function rowsToObjects(values: any[][]) {
-  const headers = values[0].map((h: any) => String(h).trim());
-  const rows = values.slice(1);
+function toObj(headers: string[], row: any[]) {
+  const obj: any = {};
+  headers.forEach((h, i) => (obj[h] = row?.[i] ?? ""));
+  return obj;
+}
 
-  return rows.map((r: any[]) => {
-    const obj: any = {};
-    headers.forEach((h: string, i: number) => (obj[h] = r?.[i] ?? ""));
-    return obj;
-  });
+function normalizeHeaders(values: any[][]) {
+  const headers = (values?.[0] || []).map((h: any) => String(h).trim());
+  const rows = (values || []).slice(1);
+  return { headers, rows };
+}
+
+function computeStatus(obj: any) {
+  // prioridad: status
+  const rawStatus = String(obj.status || "").trim();
+  if (rawStatus) return rawStatus;
+
+  // fallback: payment_status
+  const ps = String(obj.payment_status || "").trim().toLowerCase();
+  if (ps === "paid") return "paid";
+  if (ps === "completed") return "completed";
+
+  return "pending_payment";
 }
 
 export async function GET(req: Request) {
@@ -34,17 +48,26 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, orders: [] });
     }
 
-    const orders = rowsToObjects(values).filter((o: any) => {
-      if (order_id) {
-        return String(o.order_id || "").toLowerCase() === order_id.toLowerCase();
-      }
-      if (email) {
-        return String(o.email || "").toLowerCase() === email.toLowerCase();
-      }
-      return true;
-    });
+    const { headers, rows } = normalizeHeaders(values);
 
-    return NextResponse.json({ ok: true, orders });
+    const results = rows
+      .map((r) => {
+        const obj = toObj(headers, r);
+
+        // ✅ asegúrate que siempre salga status
+        obj.status = computeStatus(obj);
+
+        return obj;
+      })
+      .filter((o) => {
+        if (order_id)
+          return String(o.order_id || "").toLowerCase() === order_id.toLowerCase();
+        if (email)
+          return String(o.email || "").toLowerCase() === email.toLowerCase();
+        return true;
+      });
+
+    return NextResponse.json({ ok: true, orders: results });
   } catch (err: any) {
     console.error("GET /api/orders error:", err?.message || err, err);
     return NextResponse.json(
@@ -78,22 +101,28 @@ export async function POST(req: Request) {
 
     const order_id = generateOrderId();
     const created_at = new Date().toISOString();
+
+    // ✅ status de la app (usa estos valores)
     const status = "pending_payment";
 
-    // created_at | order_id | plan_id | plan_name | customer_name | email | phone | city | pay_method | pay_type | amount | status | notes
+    // IMPORTANTE:
+    // Debe coincidir con el ORDEN de columnas de tu sheet.
+    // Si tu sheet usa otro orden, ajusta aquí.
     await appendRow("orders", [
       created_at,
       order_id,
       plan_id,
       plan_name,
       customer_name,
-      email,
       phone,
+      email,
       city,
       pay_method,
       pay_type,
       amount,
-      status,
+      "",        // payment_status (si lo tienes)
+      "",        // proof_url (si lo tienes)
+      status,    // status (recomendado)
       notes,
     ]);
 

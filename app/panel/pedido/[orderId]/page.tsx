@@ -1,4 +1,3 @@
-// app/panel/pedido/[orderId]/page.tsx
 "use client";
 
 import React, { useEffect, useState, use } from "react";
@@ -10,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { plans } from "@/lib/data";
+import type { Order, Brief, OrderStatus } from "@/lib/types";
 import {
   ArrowLeft,
   Clock,
@@ -25,24 +26,6 @@ import {
   Calendar,
   Package,
 } from "lucide-react";
-
-type OrderStatus = "pending_payment" | "paid" | "in_progress" | "review" | "completed";
-
-type Order = {
-  created_at?: string;
-  order_id: string;
-  plan_name: string;
-  plan_id?: string;
-  customer_name?: string;
-  email: string;
-  phone?: string;
-  city?: string;
-  pay_method?: string;
-  pay_type?: string;
-  amount?: string | number;
-  status: string;
-  notes?: string;
-};
 
 const statusConfig: Record<
   OrderStatus,
@@ -87,54 +70,70 @@ const paymentMethodLabels: Record<string, string> = {
   card: "Tarjeta de Crédito/Débito",
 };
 
-const statusSteps: OrderStatus[] = ["pending_payment", "paid", "in_progress", "review", "completed"];
+const statusSteps: OrderStatus[] = [
+  "pending_payment",
+  "paid",
+  "in_progress",
+  "review",
+  "completed",
+];
 
-function normalizeStatus(s: string): OrderStatus {
-  const v = (s || "").trim() as OrderStatus;
-  return (v in statusConfig ? v : "pending_payment") as OrderStatus;
+function mapApiOrderToUi(o: any): Order {
+  return {
+    id: String(o.order_id || ""),
+    planId: String(o.plan_id || ""),
+    planName: String(o.plan_name || ""),
+    customerName: String(o.customer_name || ""),
+    customerEmail: String(o.email || ""),
+    customerPhone: String(o.phone || ""),
+    city: String(o.city || ""),
+    paymentMethod: String(o.pay_method || "nequi") as any,
+    payType: String(o.pay_type || ""),
+    totalPrice: Number(o.amount || 0),
+    createdAt: String(o.created_at || new Date().toISOString()),
+    status: String(o.status || "pending_payment") as any,
+    notes: String(o.notes || ""),
+    proofUrl: String(o.proof_url || ""),
+  };
 }
 
-async function safeJson(res: Response) {
-  const text = await res.text();
-  try {
-    return text ? JSON.parse(text) : null;
-  } catch {
-    return { ok: false, error: text || "Invalid JSON" };
-  }
-}
-
-export default function OrderDetailPage({ params }: { params: Promise<{ orderId: string }> }) {
+export default function OrderDetailPage({
+  params,
+}: {
+  params: Promise<{ orderId: string }>;
+}) {
   const { orderId } = use(params);
   const router = useRouter();
-
   const [order, setOrder] = useState<Order | null>(null);
-  const [brief, setBrief] = useState<any>(null);
+  const [brief, setBrief] = useState<Brief | null>(null);
 
   useEffect(() => {
-    (async () => {
-      // 1) Traer orden
-      const res = await fetch(`/api/orders?order_id=${encodeURIComponent(orderId)}`, { cache: "no-store" });
-      const data = await safeJson(res);
+    const run = async () => {
+      try {
+        // 1) Orden
+        const res = await fetch(`/api/orders?order_id=${encodeURIComponent(orderId)}`, { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || !data?.ok || !data.orders?.length) {
+          setOrder(null);
+          return;
+        }
+        const o = mapApiOrderToUi(data.orders[0]);
+        setOrder(o);
 
-      if (!res.ok || !data?.ok) {
+        // 2) Brief
+        const bRes = await fetch(`/api/brief/${encodeURIComponent(orderId)}`, { cache: "no-store" });
+        const bData = await bRes.json();
+        if (bRes.ok && bData?.ok && bData.brief) {
+          setBrief(bData.brief);
+        } else {
+          setBrief(null);
+        }
+      } catch (e) {
+        console.error(e);
         setOrder(null);
-        return;
       }
-
-      const found = (data.orders || [])[0] as Order | undefined;
-      if (!found) {
-        setOrder(null);
-        return;
-      }
-
-      setOrder(found);
-
-      // 2) Traer brief
-      const r2 = await fetch(`/api/brief?order_id=${encodeURIComponent(orderId)}`, { cache: "no-store" });
-      const d2 = await safeJson(r2);
-      if (r2.ok && d2?.ok) setBrief(d2.brief || null);
-      else setBrief(null);
-    })();
+    };
+    run();
   }, [orderId]);
 
   if (!order) {
@@ -144,7 +143,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold">Pedido no encontrado</h1>
-            <p className="mt-2 text-muted-foreground">Verifica que el número de pedido sea correcto.</p>
+            <p className="mt-2 text-muted-foreground">
+              Verifica que el número de pedido sea correcto.
+            </p>
             <Button className="mt-4" onClick={() => router.push("/panel")}>
               Ir a Mi Panel
             </Button>
@@ -155,26 +156,18 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
     );
   }
 
-  const statusKey = normalizeStatus(String(order.status || ""));
-  const status = statusConfig[statusKey];
+  const status = statusConfig[order.status];
   const StatusIcon = status.icon;
+  const plan = plans.find((p) => p.id === order.planId);
+  const currentStepIndex = statusSteps.indexOf(order.status);
 
-  const createdDate = order.created_at
-    ? new Date(order.created_at).toLocaleDateString("es-CO", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "-";
-
-  const amountNumber =
-    typeof order.amount === "number"
-      ? order.amount
-      : Number(String(order.amount || "0").replace(/[^\d]/g, "")) || 0;
-
-  const currentStepIndex = statusSteps.indexOf(statusKey);
+  const createdDate = new Date(order.createdAt).toLocaleDateString("es-CO", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -192,7 +185,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
           <div className="mb-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold text-foreground">Pedido {order.order_id}</h1>
+                <h1 className="text-2xl font-bold text-foreground">
+                  Pedido {order.id}
+                </h1>
                 <p className="mt-1 text-muted-foreground">Creado el {createdDate}</p>
               </div>
               <Badge className={`${status.color} text-sm py-1.5 px-3`}>
@@ -261,23 +256,22 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
                         <CheckCircle className="h-5 w-5" />
                         <span className="font-medium">Brief completado</span>
                       </div>
-
                       <div className="grid gap-4 sm:grid-cols-2 text-sm">
                         <div>
                           <p className="text-muted-foreground">Nombre del negocio</p>
-                          <p className="font-medium">{brief.business_name || "-"}</p>
+                          <p className="font-medium">{brief.business_name}</p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">Tipo de negocio</p>
-                          <p className="font-medium">{brief.business_type || "-"}</p>
+                          <p className="font-medium">{brief.business_type}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Estilo</p>
-                          <p className="font-medium">{brief.style || "-"}</p>
+                          <p className="text-muted-foreground">Estilo preferido</p>
+                          <p className="font-medium capitalize">{brief.style}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Páginas</p>
-                          <p className="font-medium">{brief.pages || "-"}</p>
+                          <p className="text-muted-foreground">Páginas seleccionadas</p>
+                          <p className="font-medium">{(brief.pages || []).length} páginas</p>
                         </div>
                       </div>
                     </div>
@@ -285,8 +279,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
                     <div className="text-center py-4">
                       <AlertCircle className="h-8 w-8 text-amber-500 mx-auto" />
                       <p className="mt-3 font-medium text-foreground">Brief pendiente</p>
-                      <p className="text-sm text-muted-foreground mt-1">Completa el brief para que podamos empezar.</p>
-                      <Link href={`/brief/${order.order_id}`}>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Completa el brief para que podamos empezar tu proyecto.
+                      </p>
+                      <Link href={`/brief/${order.id}`}>
                         <Button className="mt-4">Completar Brief</Button>
                       </Link>
                     </div>
@@ -306,12 +302,18 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
                 <CardContent className="space-y-4">
                   <div>
                     <p className="text-muted-foreground text-sm">Plan</p>
-                    <p className="font-semibold text-foreground">{order.plan_name}</p>
+                    <p className="font-semibold text-foreground">{order.planName}</p>
                   </div>
+                  {plan && (
+                    <div>
+                      <p className="text-muted-foreground text-sm">Tiempo de entrega</p>
+                      <p className="font-medium">{plan.deliveryTime}</p>
+                    </div>
+                  )}
                   <Separator />
                   <div>
                     <p className="text-muted-foreground text-sm">Total</p>
-                    <p className="text-2xl font-bold text-primary">${amountNumber.toLocaleString("es-CO")} COP</p>
+                    <p className="text-2xl font-bold text-primary">${order.totalPrice.toLocaleString("es-CO")} COP</p>
                   </div>
                 </CardContent>
               </Card>
@@ -326,19 +328,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex items-center gap-3">
                     <User className="h-4 w-4 text-muted-foreground" />
-                    <span>{order.customer_name || "-"}</span>
+                    <span>{order.customerName}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span>{order.email}</span>
+                    <span>{order.customerEmail}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{order.phone || "-"}</span>
+                    <span>{order.customerPhone}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <CreditCard className="h-4 w-4 text-muted-foreground" />
-                    <span>{paymentMethodLabels[String(order.pay_method || "")] || String(order.pay_method || "-")}</span>
+                    <span>{paymentMethodLabels[order.paymentMethod] || order.paymentMethod}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -357,7 +359,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ orderId:
                     Si tienes preguntas sobre tu proyecto, contáctanos por WhatsApp.
                   </p>
                   <a
-                    href={`https://wa.me/573001234567?text=Hola!%20Tengo%20una%20pregunta%20sobre%20mi%20pedido%20${order.order_id}`}
+                    href={`https://wa.me/573001234567?text=Hola!%20Tengo%20una%20pregunta%20sobre%20mi%20pedido%20${order.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
