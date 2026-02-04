@@ -3,15 +3,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getSheetValues } from "@/lib/googleSheets";
-
-function normOrderId(v: any) {
-  return String(v ?? "")
-    .replace(/\u00A0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase()
-    .replace(/-/g, ""); // 👈 clave: elimina guiones
-}
+import { orderIdKey } from "@/lib/orderId";
 
 export async function GET(_req: Request, { params }: { params: { orderId: string } }) {
   try {
@@ -36,9 +28,9 @@ export async function GET(_req: Request, { params }: { params: { orderId: string
       );
     }
 
-    const target = normOrderId(orderId);
+    const target = orderIdKey(orderId);
 
-    const row = rows.find((r) => normOrderId(r?.[idxOrder]) === target);
+    const row = rows.find((r) => orderIdKey(r?.[idxOrder]) === target);
 
     if (!row) {
       return NextResponse.json({ ok: true, exists: false, brief: null });
