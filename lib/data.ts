@@ -98,7 +98,7 @@ export const plans = [
   },
 
   {
-    id: "tienda" as const,
+    id: "store" as const,
     name: "Tienda Online",
     price: 999000,
     priceFormatted: "$999.000 COP",
