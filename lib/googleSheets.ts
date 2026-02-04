@@ -5,8 +5,9 @@ export const SHEETS_SCOPE = ["https://www.googleapis.com/auth/spreadsheets"];
 
 function normalizePrivateKey(raw?: string) {
   if (!raw) return "";
-  // Quita comillas si quedaron pegadas por Vercel (muy común)
   let key = raw.trim();
+
+  // Quita comillas si quedaron pegadas por Vercel
   key = key.replace(/^"|"$/g, "");
   key = key.replace(/^'|'$/g, "");
 
@@ -15,6 +16,14 @@ function normalizePrivateKey(raw?: string) {
   key = key.replace(/\r\n/g, "\n");
 
   return key;
+}
+
+function normalizeCell(v: any) {
+  return String(v ?? "")
+    .replace(/\u00A0/g, " ") // non-breaking space
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 export async function getSheetsClient() {
@@ -34,8 +43,7 @@ export async function getSheetsClient() {
     scopes: SHEETS_SCOPE,
   });
 
-  const sheets = google.sheets({ version: "v4", auth });
-  return sheets;
+  return google.sheets({ version: "v4", auth });
 }
 
 export function getSpreadsheetId() {
@@ -69,4 +77,106 @@ export async function appendRow(sheetName: string, values: any[]) {
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [values] },
   });
+}
+
+function columnToLetter(col: number) {
+  let temp = col;
+  let letter = "";
+  while (temp > 0) {
+    const mod = (temp - 1) % 26;
+    letter = String.fromCharCode(65 + mod) + letter;
+    temp = Math.floor((temp - 1) / 26);
+  }
+  return letter;
+}
+
+export async function updateRow(sheetName: string, rowIndex1Based: number, values: any[]) {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  const endColLetter = columnToLetter(values.length);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${sheetName}!A${rowIndex1Based}:${endColLetter}${rowIndex1Based}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+}
+
+/**
+ * ✅ findRowByColumn
+ * Busca una fila comparando por header name y matchValue, con normalización robusta
+ */
+export async function findRowByColumn(
+  sheetName: string,
+  columnHeader: string,
+  matchValue: string,
+  range = "A:Z"
+) {
+  const values = await getSheetValues(sheetName, range);
+
+  if (!values || values.length < 2) {
+    return {
+      headers: [] as string[],
+      rows: [] as any[][],
+      rowIndex1Based: null as number | null,
+      row: null as any[] | null,
+    };
+  }
+
+  const headers = values[0].map((h: any) => String(h).trim());
+  const rows = values.slice(1);
+
+  const colIndex = headers.findIndex((h) => h.trim() === columnHeader.trim());
+  if (colIndex === -1) {
+    throw new Error(`${sheetName} missing column: ${columnHeader}`);
+  }
+
+  const target = normalizeCell(matchValue);
+
+  const foundIdx = rows.findIndex((r) => normalizeCell(r?.[colIndex]) === target);
+
+  if (foundIdx === -1) {
+    return { headers, rows, rowIndex1Based: null, row: null };
+  }
+
+  // +2: header está en fila 1, rows empieza en fila 2
+  const rowIndex1Based = foundIdx + 2;
+  const row = rows[foundIdx];
+
+  return { headers, rows, rowIndex1Based, row };
+}
+
+/**
+ * ✅ upsertByOrderId
+ * Inserta o actualiza en base al order_id (sin duplicados)
+ * Requiere que la hoja tenga header "order_id"
+ */
+export async function upsertByOrderId(
+  sheetName: string,
+  orderId: string,
+  data: Record<string, any>,
+  range = "A:Z"
+) {
+  // Trae headers y fila existente (si existe)
+  const found = await findRowByColumn(sheetName, "order_id", orderId, range);
+
+  if (!found.headers.length) {
+    throw new Error(`${sheetName} has no headers`);
+  }
+
+  // Construye la fila en el mismo orden del header
+  const rowValues = found.headers.map((h) => {
+    const key = String(h).trim();
+    return data[key] ?? "";
+  });
+
+  if (found.rowIndex1Based) {
+    await updateRow(sheetName, found.rowIndex1Based, rowValues);
+    return { updated: true, rowIndex1Based: found.rowIndex1Based };
+  } else {
+    await appendRow(sheetName, rowValues);
+    return { updated: false, rowIndex1Based: null };
+  }
 }
