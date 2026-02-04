@@ -1,31 +1,64 @@
 import type { Plan, PortfolioItem, FAQ, Testimonial } from './types';
 
-// lib/data.ts
+export type PlanId = "landing" | "web" | "tienda";
+
+export type BriefRules =
+  | {
+      pagesMode: "single"; // Landing
+      maxPages: 1;
+      pageOptions: { id: string; label: string }[];
+      styleOptions: string[];
+    }
+  | {
+      pagesMode: "multi"; // Web profesional
+      maxPages: number;
+      pageOptions: { id: string; label: string }[];
+      styleOptions: string[];
+    }
+  | {
+      pagesMode: "none"; // Tienda online
+      maxPages: 0;
+      pageOptions: [];
+      marketOptions: { id: string; label: string }[];
+      styleOptions: string[];
+    };
+
 export const plans = [
   {
-    id: "landing",
+    id: "landing" as const,
     name: "Landing Page",
     price: 299000,
     priceFormatted: "$299.000 COP",
     deliveryTime: "5-7 días",
     features: [
       "Diseño personalizado",
-      "1 pagina optimizada",
-      "Responsive (movil y escritorio)",
+      "1 página optimizada",
+      "Responsive (móvil y escritorio)",
       "Formulario de contacto",
       "Optimización SEO básica",
       "Integración WhatsApp",
+      "Entrega en 5-7 días",
       "2 revisiones incluidas",
     ],
-
-    // ✅ Solo opciones permitidas para este plan:
-    allowedPages: ["inicio", "servicios", "portafolio", "contacto", "faq"],
-    allowedFeatures: ["whatsapp", "formulario_contacto", "mapa", "newsletter"],
-    limits: { maxPages: 5 },
+    briefRules: {
+      pagesMode: "single",
+      maxPages: 1,
+      pageOptions: [
+        { id: "landing_producto", label: "Landing para Producto" },
+        { id: "landing_servicio", label: "Landing para Servicio" },
+      ],
+      styleOptions: [
+        "corporativo",
+        "moderno",
+        "minimalista",
+        "premium",
+        "creativo",
+      ],
+    } satisfies BriefRules,
   },
 
   {
-    id: "web",
+    id: "web" as const,
     name: "Web Profesional",
     price: 599000,
     priceFormatted: "$599.000 COP",
@@ -38,73 +71,69 @@ export const plans = [
       "Galería de proyectos",
       "SEO avanzado",
       "Certificado SSL",
+      "Entrega en 10-14 días",
       "3 revisiones incluidas",
     ],
-
-    allowedPages: [
-      "inicio",
-      "nosotros",
-      "servicios",
-      "portafolio",
-      "blog",
-      "contacto",
-      "faq",
-      "testimonios",
-    ],
-    allowedFeatures: [
-      "whatsapp",
-      "formulario_contacto",
-      "mapa",
-      "newsletter",
-      "galeria",
-      "chat_en_vivo",
-    ],
-    limits: { maxPages: 8 },
+    briefRules: {
+      pagesMode: "multi",
+      maxPages: 5,
+      pageOptions: [
+        { id: "inicio", label: "Inicio / Home" },
+        { id: "nosotros", label: "Nosotros / Quiénes Somos" },
+        { id: "servicios", label: "Servicios" },
+        { id: "portafolio", label: "Portafolio / Proyectos" },
+        { id: "blog", label: "Blog / Noticias" },
+        { id: "contacto", label: "Contacto" },
+        { id: "faq", label: "Preguntas Frecuentes" },
+        { id: "testimonios", label: "Testimonios" },
+      ],
+      styleOptions: [
+        "corporativo",
+        "moderno",
+        "minimalista",
+        "premium",
+        "creativo",
+      ],
+    } satisfies BriefRules,
   },
 
   {
-    id: "tienda",
+    id: "tienda" as const,
     name: "Tienda Online",
     price: 999000,
     priceFormatted: "$999.000 COP",
     deliveryTime: "15-20 días",
     features: [
       "Diseño e-commerce profesional",
-      "Hasta 50 productos",
       "Carrito de compras",
       "Pasarela de pagos (PSE, tarjetas)",
       "Gestión de inventario",
       "Panel de administración",
       "Integración envíos",
+      "SEO para e-commerce",
+      "Certificado SSL",
       "Soporte 30 días",
+      "4 revisiones incluidas",
     ],
-
-    allowedPages: [
-      "inicio",
-      "productos",
-      "categoria",
-      "carrito",
-      "checkout",
-      "contacto",
-      "faq",
-      "politicas",
-    ],
-    allowedFeatures: [
-      "whatsapp",
-      "formulario_contacto",
-      "mapa",
-      "newsletter",
-      "pasarela_pagos",
-      "carrito",
-      "envios",
-      "inventario",
-    ],
-    limits: { maxPages: 10 },
+    briefRules: {
+      pagesMode: "none",
+      maxPages: 0,
+      pageOptions: [],
+      marketOptions: [
+        { id: "b2c", label: "B2C (vendo al consumidor final)" },
+        { id: "b2b", label: "B2B (vendo a empresas)" },
+        { id: "mixto", label: "Mixto (B2C y B2B)" },
+        { id: "nicho", label: "Nicho (mercado específico)" },
+      ],
+      styleOptions: [
+        "ecommerce_moderno",
+        "ecommerce_minimalista",
+        "ecommerce_premium",
+        "ecommerce_colorido",
+      ],
+    } satisfies BriefRules,
   },
-] as const;
-
-export type Plan = (typeof plans)[number];
-
+];
 
 export const portfolioItems: PortfolioItem[] = [
   {
