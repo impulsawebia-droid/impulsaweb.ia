@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     }
 
     // 2) Leer headers reales de briefs
-    const briefsValues = await getSheetValues("briefs", "A:Z");
+    const briefsValues = await getSheetValues("briefs", "A1:Z");
     if (!briefsValues || briefsValues.length < 1) {
       return NextResponse.json({ ok: false, error: "briefs sheet has no headers" }, { status: 500 });
     }
@@ -50,12 +50,12 @@ export async function POST(req: Request) {
     let plan_name = "";
 
     // Busca por order_id normalizado
-    const orderFound = await findRowByColumn("orders", "order_id", order_id, "A:Z");
+    const orderFound = await findRowByColumn("orders", "order_id", order_id, "A1:Z");
 
     // Fallback: si hay orders viejos con formato distinto, intenta con el raw
     const orderFoundFinal = orderFound.row
       ? orderFound
-      : await findRowByColumn("orders", "order_id", String(order_id_raw || "").trim(), "A:Z");
+      : await findRowByColumn("orders", "order_id", String(order_id_raw || "").trim(), "A1:Z");
 
     if (orderFoundFinal.row) {
       const oh = orderFoundFinal.headers;
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
 
     // 6) UPSERT usando headers: evita duplicados y respeta el orden real de la hoja
     // upsertByOrderId ya construye la fila por headers, así que no se pierden columnas nuevas.
-    const result = await upsertByOrderId("briefs", order_id, data, "A:Z");
+    const result = await upsertByOrderId("briefs", order_id, data, "A1:Z");
 
     return NextResponse.json({
       ok: true,

@@ -52,18 +52,29 @@ export function getSpreadsheetId() {
   return id;
 }
 
-export async function getSheetValues(sheetName: string, range = "A:Z") {
+export async function getSheetValues(sheetName: string, range = "A1:Z") {
   const sheets = await getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
 
-  const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${sheetName}!${range}`,
-    majorDimension: "ROWS",
-    valueRenderOption: "UNFORMATTED_VALUE",
-  });
+  try {
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!${range}`,
+      majorDimension: "ROWS",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
 
-  return resp.data.values || [];
+    const values = resp.data.values || [];
+    return values;
+  } catch (err: any) {
+    // 🔥 esto te mostrará el error REAL en Vercel logs
+    console.error(
+      `GoogleSheets getSheetValues failed for ${sheetName}!${range}:`,
+      err?.response?.data || err?.message || err,
+      err
+    );
+    throw new Error(`No se pudo leer la hoja "${sheetName}". Revisa permisos, spreadsheetId y nombre.`);
+  }
 }
 
 export async function appendRow(sheetName: string, values: any[]) {

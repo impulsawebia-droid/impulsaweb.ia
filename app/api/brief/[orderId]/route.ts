@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: { orderId: string
       return NextResponse.json({ ok: false, error: "Missing orderId" }, { status: 400 });
     }
 
-    const values = await getSheetValues("briefs", "A:Z");
+    const values = await getSheetValues("briefs", "A1:Z");
     if (!values || values.length < 2) {
       return NextResponse.json({ ok: true, exists: false, brief: null });
     }

@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     const email = url.searchParams.get("email");
     const orderId = url.searchParams.get("order_id");
 
-    const values = await getSheetValues("orders", "A:Z");
+    const values = await getSheetValues("orders", "A1:Z");
     if (!values || values.length < 2) {
       return NextResponse.json({ ok: true, orders: [] });
     }
