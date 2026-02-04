@@ -8,24 +8,18 @@ function findIndex(headers: any[], name: string) {
   return headers.findIndex((h) => String(h).trim() === name);
 }
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { orderId: string } }
-) {
+export async function GET(_req: Request, { params }: { params: { orderId: string } }) {
   try {
-    const orderId = params.orderId;
+    const orderId = String(params.orderId || "").trim();
 
     if (!orderId) {
-      return NextResponse.json(
-        { ok: false, error: "Missing orderId" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing orderId" }, { status: 400 });
     }
 
     const values = await getSheetValues("briefs", "A:Z");
 
     if (!values || values.length < 2) {
-      return NextResponse.json({ ok: true, brief: null });
+      return NextResponse.json({ ok: true, exists: false, brief: null });
     }
 
     const headers = values[0];
@@ -39,10 +33,12 @@ export async function GET(
       );
     }
 
-    const row = rows.find((r) => String(r?.[idxOrder] || "") === orderId);
+    const row = rows.find(
+      (r) => String(r?.[idxOrder] || "").trim().toLowerCase() === orderId.toLowerCase()
+    );
 
     if (!row) {
-      return NextResponse.json({ ok: true, brief: null });
+      return NextResponse.json({ ok: true, exists: false, brief: null });
     }
 
     const obj: any = {};
@@ -50,12 +46,9 @@ export async function GET(
       obj[String(h).trim()] = row?.[i] ?? "";
     });
 
-    return NextResponse.json({ ok: true, brief: obj });
+    return NextResponse.json({ ok: true, exists: true, brief: obj });
   } catch (err: any) {
     console.error("GET /api/brief/[orderId] error:", err?.message || err, err);
-    return NextResponse.json(
-      { ok: false, error: err?.message || "Internal error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "Internal error" }, { status: 500 });
   }
 }
