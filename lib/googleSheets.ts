@@ -1,90 +1,49 @@
-// lib/googleSheets.ts
 import { google } from "googleapis";
 
-export const SHEETS_SCOPE = ["https://www.googleapis.com/auth/spreadsheets"];
-
-function normalizePrivateKey(raw?: string) {
-  if (!raw) return "";
-  let key = raw.trim();
-
-  // Quita comillas si quedaron pegadas por Vercel
-  key = key.replace(/^"|"$/g, "");
-  key = key.replace(/^'|'$/g, "");
-
-  // Normaliza saltos de línea
-  key = key.replace(/\\n/g, "\n");
-  key = key.replace(/\r\n/g, "\n");
-
-  return key;
-}
-
-function normalizeCell(v: any) {
-  return String(v ?? "")
-    .replace(/\u00A0/g, " ") // non-breaking space
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-export async function getSheetsClient() {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-
-  if (!email || !rawKey || !spreadsheetId) {
-    throw new Error("Missing Google Sheets env vars");
-  }
-
-  const key = normalizePrivateKey(rawKey);
-
-  const auth = new google.auth.JWT({
-    email,
-    key,
-    scopes: SHEETS_SCOPE,
-  });
-
-  return google.sheets({ version: "v4", auth });
+function normalizePrivateKey(key?: string) {
+  if (!key) return "";
+  // Vercel a veces guarda \n como texto
+  return key.replace(/\\n/g, "\n");
 }
 
 export function getSpreadsheetId() {
   const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-  if (!id) throw new Error("Missing GOOGLE_SHEETS_SPREADSHEET_ID");
+  if (!id) throw new Error("Missing env GOOGLE_SHEETS_SPREADSHEET_ID");
   return id;
+}
+
+export async function getSheetsClient() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const privateKey = normalizePrivateKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+
+  if (!email) throw new Error("Missing env GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  if (!privateKey) throw new Error("Missing env GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
+
+  const auth = new google.auth.JWT({
+    email,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+
+  await auth.authorize();
+
+  return google.sheets({ version: "v4", auth });
 }
 
 export async function getSheetValues(sheetName: string, range = "A1:Z") {
   const sheets = await getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
-
   const finalRange = `${sheetName}!${range}`;
 
-  try {
-    const resp = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: finalRange,
-      majorDimension: "ROWS",
-      valueRenderOption: "UNFORMATTED_VALUE",
-    });
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: finalRange,
+    majorDimension: "ROWS",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
 
-    const values = resp.data.values || [];
-
-    // 🔥 LOG para ver si está leyendo la hoja correcta
-    console.log(
-      `[Sheets] read ${finalRange} rows=${values.length} spreadsheetId=${spreadsheetId}`
-    );
-
-    return values;
-  } catch (err: any) {
-    console.error(
-      `[Sheets] ERROR reading ${finalRange} spreadsheetId=${spreadsheetId}`,
-      err?.response?.data || err?.message || err
-    );
-    throw new Error(
-      `No se pudo leer ${finalRange}. Revisa spreadsheetId, permisos del Service Account y nombre de la hoja.`
-    );
-  }
+  return resp.data.values || [];
 }
-
 
 export async function appendRow(sheetName: string, values: any[]) {
   const sheets = await getSheetsClient();
@@ -92,111 +51,104 @@ export async function appendRow(sheetName: string, values: any[]) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:Z`,
+    range: `${sheetName}!A1:Z`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
-    requestBody: { values: [values] },
-  });
-}
-
-function columnToLetter(col: number) {
-  let temp = col;
-  let letter = "";
-  while (temp > 0) {
-    const mod = (temp - 1) % 26;
-    letter = String.fromCharCode(65 + mod) + letter;
-    temp = Math.floor((temp - 1) / 26);
-  }
-  return letter;
-}
-
-export async function updateRow(sheetName: string, rowIndex1Based: number, values: any[]) {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = getSpreadsheetId();
-
-  const endColLetter = columnToLetter(values.length);
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${sheetName}!A${rowIndex1Based}:${endColLetter}${rowIndex1Based}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [values] },
+    requestBody: {
+      values: [values],
+    },
   });
 }
 
 /**
- * ✅ findRowByColumn
- * Busca una fila comparando por header name y matchValue, con normalización robusta
+ * Busca una fila por valor exacto en una columna.
+ * Devuelve headers (fila 1), row (fila encontrada), y rowNumber (1-indexed en Sheets).
  */
 export async function findRowByColumn(
   sheetName: string,
-  columnHeader: string,
-  matchValue: string,
-  range = "A:Z"
+  columnName: string,
+  value: string,
+  range = "A1:Z"
 ) {
   const values = await getSheetValues(sheetName, range);
 
-  if (!values || values.length < 2) {
-    return {
-      headers: [] as string[],
-      rows: [] as any[][],
-      rowIndex1Based: null as number | null,
-      row: null as any[] | null,
-    };
+  if (!values || values.length < 1) {
+    return { headers: [], row: null as any, rowNumber: null as any };
   }
 
-  const headers = values[0].map((h: any) => String(h).trim());
+  const headers = (values[0] || []).map((h: any) => String(h || "").trim());
   const rows = values.slice(1);
 
-  const colIndex = headers.findIndex((h) => h.trim() === columnHeader.trim());
-  if (colIndex === -1) {
-    throw new Error(`${sheetName} missing column: ${columnHeader}`);
+  const idx = headers.findIndex((h) => h === columnName);
+  if (idx === -1) {
+    throw new Error(`${sheetName} missing column: ${columnName}`);
   }
 
-  const target = normalizeCell(matchValue);
+  const target = String(value || "").trim();
+  let foundIndex = -1;
 
-  const foundIdx = rows.findIndex((r) => normalizeCell(r?.[colIndex]) === target);
-
-  if (foundIdx === -1) {
-    return { headers, rows, rowIndex1Based: null, row: null };
+  for (let i = 0; i < rows.length; i++) {
+    const cell = String(rows[i]?.[idx] ?? "").trim();
+    if (cell === target) {
+      foundIndex = i;
+      break;
+    }
   }
 
-  // +2: header está en fila 1, rows empieza en fila 2
-  const rowIndex1Based = foundIdx + 2;
-  const row = rows[foundIdx];
+  if (foundIndex === -1) {
+    return { headers, row: null, rowNumber: null };
+  }
 
-  return { headers, rows, rowIndex1Based, row };
+  // rowNumber en Sheets: headers=1, rows start at 2, +foundIndex
+  const rowNumber = 2 + foundIndex;
+  return { headers, row: rows[foundIndex], rowNumber };
+}
+
+async function updateRowByNumber(sheetName: string, rowNumber: number, values: any[]) {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  // Actualiza A..Z de esa fila (según la longitud de values)
+  const startCol = "A";
+  const endCol = String.fromCharCode("A".charCodeAt(0) + Math.max(values.length - 1, 0));
+  const range = `${sheetName}!${startCol}${rowNumber}:${endCol}${rowNumber}`;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
 }
 
 /**
- * ✅ upsertByOrderId
- * Inserta o actualiza en base al order_id (sin duplicados)
- * Requiere que la hoja tenga header "order_id"
+ * UPSERT por order_id:
+ * - Si existe: actualiza esa fila respetando headers
+ * - Si no: inserta una nueva fila respetando headers
  */
 export async function upsertByOrderId(
   sheetName: string,
   orderId: string,
   data: Record<string, any>,
-  range = "A:Z"
+  range = "A1:Z"
 ) {
-  // Trae headers y fila existente (si existe)
   const found = await findRowByColumn(sheetName, "order_id", orderId, range);
 
   if (!found.headers.length) {
     throw new Error(`${sheetName} has no headers`);
   }
 
-  // Construye la fila en el mismo orden del header
-  const rowValues = found.headers.map((h) => {
-    const key = String(h).trim();
-    return data[key] ?? "";
+  const headers = found.headers;
+  const rowValues = headers.map((h) => {
+    const v = data[h];
+    return v === undefined || v === null ? "" : String(v);
   });
 
-  if (found.rowIndex1Based) {
-    await updateRow(sheetName, found.rowIndex1Based, rowValues);
-    return { updated: true, rowIndex1Based: found.rowIndex1Based };
+  if (found.rowNumber) {
+    await updateRowByNumber(sheetName, found.rowNumber, rowValues);
+    return { action: "updated", rowNumber: found.rowNumber };
   } else {
     await appendRow(sheetName, rowValues);
-    return { updated: false, rowIndex1Based: null };
+    return { action: "inserted" };
   }
 }

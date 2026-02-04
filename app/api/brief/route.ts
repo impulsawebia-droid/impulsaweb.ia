@@ -96,11 +96,9 @@ export async function POST(req: Request) {
       competitors: String(pick(body, ["competitors"], "")),
       style: String(pick(body, ["style"], "")),
 
-      // ✅ LOS QUE TE ESTÁN FALLANDO:
-      content: String(pick(body, ["content", "contenido"], "")),
-      additional_notes: String(
-        pick(body, ["additional_notes", "additionalNotes", "notes"], "")
-      ),
+      content: String(pick(body, ["content", "content_ready", "contentReady", "contenido"], "")),
+      additional_notes: String(pick(body, ["additional_notes", "additionalNotes", "notes"], "")),
+
 
       status: String(pick(body, ["status"], "submitted")),
     };
