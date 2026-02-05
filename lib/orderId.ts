@@ -1,154 +1,72 @@
-import { google } from "googleapis";
+// lib/orderId.ts
 
-function normalizePrivateKey(key?: string) {
-  if (!key) return "";
-  // Vercel a veces guarda \n como texto
-  return key.replace(/\\n/g, "\n");
-}
+/**
+ * Normaliza un orderId a un formato consistente:
+ * - Trim
+ * - Uppercase
+ * - Extrae ID si viene en URL
+ * - Elimina query params
+ * - Quita comillas
+ * - Devuelve match tipo IW-YYMM-XXXX si existe
+ */
+export function normalizeOrderId(input: unknown): string {
+  if (input === null || input === undefined) return "";
 
-export function getSpreadsheetId() {
-  const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-  if (!id) throw new Error("Missing env GOOGLE_SHEETS_SPREADSHEET_ID");
-  return id;
-}
+  let s = String(input).trim();
+  if (!s) return "";
 
-export async function getSheetsClient() {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const privateKey = normalizePrivateKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+  // Si viene como URL o path, toma el último segmento
+  if (s.includes("/")) {
+    const parts = s.split("/").filter(Boolean);
+    s = parts[parts.length - 1] || s;
+  }
 
-  if (!email) throw new Error("Missing env GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  if (!privateKey) throw new Error("Missing env GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
+  // Si viene con query params
+  if (s.includes("?")) {
+    s = s.split("?")[0].trim();
+  }
 
-  const auth = new google.auth.JWT({
-    email,
-    key: privateKey,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
+  // Quita comillas alrededor
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
 
-  await auth.authorize();
+  // Quita espacios internos y pasa a mayúsculas
+  s = s.replace(/\s+/g, "").toUpperCase();
 
-  return google.sheets({ version: "v4", auth });
-}
+  // Intenta extraer un ID válido dentro del string
+  const m = s.match(/IW-\d{4}-[A-Z0-9]{4}/);
+  if (m?.[0]) return m[0];
 
-export async function getSheetValues(sheetName: string, range = "A1:Z") {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = getSpreadsheetId();
-  const finalRange = `${sheetName}!${range}`;
-
-  const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: finalRange,
-    majorDimension: "ROWS",
-    valueRenderOption: "UNFORMATTED_VALUE",
-  });
-
-  return resp.data.values || [];
-}
-
-export async function appendRow(sheetName: string, values: any[]) {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = getSpreadsheetId();
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `${sheetName}!A1:Z`,
-    valueInputOption: "USER_ENTERED",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: {
-      values: [values],
-    },
-  });
+  return s;
 }
 
 /**
- * Busca una fila por valor exacto en una columna.
- * Devuelve headers (fila 1), row (fila encontrada), y rowNumber (1-indexed en Sheets).
+ * Alias para compatibilidad con código viejo:
+ * orderIdKey() = normalizeOrderId()
  */
-export async function findRowByColumn(
-  sheetName: string,
-  columnName: string,
-  value: string,
-  range = "A1:Z"
-) {
-  const values = await getSheetValues(sheetName, range);
-
-  if (!values || values.length < 1) {
-    return { headers: [], row: null as any, rowNumber: null as any };
-  }
-
-  const headers = (values[0] || []).map((h: any) => String(h || "").trim());
-  const rows = values.slice(1);
-
-  const idx = headers.findIndex((h) => h === columnName);
-  if (idx === -1) {
-    throw new Error(`${sheetName} missing column: ${columnName}`);
-  }
-
-  const target = String(value || "").trim();
-  let foundIndex = -1;
-
-  for (let i = 0; i < rows.length; i++) {
-    const cell = String(rows[i]?.[idx] ?? "").trim();
-    if (cell === target) {
-      foundIndex = i;
-      break;
-    }
-  }
-
-  if (foundIndex === -1) {
-    return { headers, row: null, rowNumber: null };
-  }
-
-  // rowNumber en Sheets: headers=1, rows start at 2, +foundIndex
-  const rowNumber = 2 + foundIndex;
-  return { headers, row: rows[foundIndex], rowNumber };
-}
-
-async function updateRowByNumber(sheetName: string, rowNumber: number, values: any[]) {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = getSpreadsheetId();
-
-  // Actualiza A..Z de esa fila (según la longitud de values)
-  const startCol = "A";
-  const endCol = String.fromCharCode("A".charCodeAt(0) + Math.max(values.length - 1, 0));
-  const range = `${sheetName}!${startCol}${rowNumber}:${endCol}${rowNumber}`;
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [values] },
-  });
+export function orderIdKey(input: unknown): string {
+  return normalizeOrderId(input);
 }
 
 /**
- * UPSERT por order_id:
- * - Si existe: actualiza esa fila respetando headers
- * - Si no: inserta una nueva fila respetando headers
+ * Valida formato esperado: IW-YYMM-XXXX
  */
-export async function upsertByOrderId(
-  sheetName: string,
-  orderId: string,
-  data: Record<string, any>,
-  range = "A1:Z"
-) {
-  const found = await findRowByColumn(sheetName, "order_id", orderId, range);
+export function isValidOrderId(orderId: unknown): boolean {
+  const id = normalizeOrderId(orderId);
+  return /^IW-\d{4}-[A-Z0-9]{4}$/.test(id);
+}
 
-  if (!found.headers.length) {
-    throw new Error(`${sheetName} has no headers`);
-  }
-
-  const headers = found.headers;
-  const rowValues = headers.map((h) => {
-    const v = data[h];
-    return v === undefined || v === null ? "" : String(v);
-  });
-
-  if (found.rowNumber) {
-    await updateRowByNumber(sheetName, found.rowNumber, rowValues);
-    return { action: "updated", rowNumber: found.rowNumber };
-  } else {
-    await appendRow(sheetName, rowValues);
-    return { action: "inserted" };
-  }
+/**
+ * Genera un nuevo orderId: IW-YYMM-XXXX
+ */
+export function generateOrderId(prefix = "IW"): string {
+  const d = new Date();
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `${prefix}-${yy}${mm}-${rand}`;
 }
