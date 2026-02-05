@@ -2,8 +2,23 @@ import { google } from "googleapis";
 
 function normalizePrivateKey(key?: string) {
   if (!key) return "";
-  // Vercel a veces guarda \n como texto
-  return key.replace(/\\n/g, "\n");
+
+  let k = String(key).trim();
+
+  if (
+    (k.startsWith('"') && k.endsWith('"')) ||
+    (k.startsWith("'") && k.endsWith("'"))
+  ) {
+    k = k.slice(1, -1).trim();
+  }
+
+  k = k.replace(/\\n/g, "\n");
+  k = k.replace(/\r\n/g, "\n");
+
+  k = k.replace(/-----BEGIN PRIVATE KEY-----\s*/g, "-----BEGIN PRIVATE KEY-----\n");
+  k = k.replace(/\s*-----END PRIVATE KEY-----/g, "\n-----END PRIVATE KEY-----");
+
+  return k;
 }
 
 export function getSpreadsheetId() {
@@ -60,10 +75,6 @@ export async function appendRow(sheetName: string, values: any[]) {
   });
 }
 
-/**
- * Busca una fila por valor exacto en una columna.
- * Devuelve headers (fila 1), row (fila encontrada), y rowNumber (1-indexed en Sheets).
- */
 export async function findRowByColumn(
   sheetName: string,
   columnName: string,
@@ -99,7 +110,6 @@ export async function findRowByColumn(
     return { headers, row: null, rowNumber: null };
   }
 
-  // rowNumber en Sheets: headers=1, rows start at 2, +foundIndex
   const rowNumber = 2 + foundIndex;
   return { headers, row: rows[foundIndex], rowNumber };
 }
@@ -108,7 +118,6 @@ async function updateRowByNumber(sheetName: string, rowNumber: number, values: a
   const sheets = await getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
 
-  // Actualiza A..Z de esa fila (según la longitud de values)
   const startCol = "A";
   const endCol = String.fromCharCode("A".charCodeAt(0) + Math.max(values.length - 1, 0));
   const range = `${sheetName}!${startCol}${rowNumber}:${endCol}${rowNumber}`;
@@ -121,11 +130,6 @@ async function updateRowByNumber(sheetName: string, rowNumber: number, values: a
   });
 }
 
-/**
- * UPSERT por order_id:
- * - Si existe: actualiza esa fila respetando headers
- * - Si no: inserta una nueva fila respetando headers
- */
 export async function upsertByOrderId(
   sheetName: string,
   orderId: string,

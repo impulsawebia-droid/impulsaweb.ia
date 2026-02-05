@@ -1,24 +1,154 @@
-// Para comparar: elimina guiones y espacios, lower
-export function orderIdKey(id: any) {
-  return String(id ?? "")
-    .replace(/\u00A0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase()
-    .replace(/-/g, "");
+import { google } from "googleapis";
+
+function normalizePrivateKey(key?: string) {
+  if (!key) return "";
+  // Vercel a veces guarda \n como texto
+  return key.replace(/\\n/g, "\n");
 }
 
-// Para guardar: fuerza formato con guion si viene tipo IW2602-XXXX
-export function normalizeOrderId(id: any) {
-  const raw = String(id ?? "").trim().toUpperCase();
+export function getSpreadsheetId() {
+  const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+  if (!id) throw new Error("Missing env GOOGLE_SHEETS_SPREADSHEET_ID");
+  return id;
+}
 
-  // Caso ya correcto: IW-2602-XXXX
-  if (/^IW-\d{4}-[A-Z0-9]{3,}$/.test(raw)) return raw;
+export async function getSheetsClient() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const privateKey = normalizePrivateKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 
-  // Caso viejo: IW2602-XXXX  -> IW-2602-XXXX
-  const m = raw.match(/^IW(\d{4})-([A-Z0-9]{3,})$/);
-  if (m) return `IW-${m[1]}-${m[2]}`;
+  if (!email) throw new Error("Missing env GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  if (!privateKey) throw new Error("Missing env GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
 
-  // Si llega cualquier otra cosa, lo devolvemos “como venga”
-  return raw;
+  const auth = new google.auth.JWT({
+    email,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+
+  await auth.authorize();
+
+  return google.sheets({ version: "v4", auth });
+}
+
+export async function getSheetValues(sheetName: string, range = "A1:Z") {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const finalRange = `${sheetName}!${range}`;
+
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: finalRange,
+    majorDimension: "ROWS",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+
+  return resp.data.values || [];
+}
+
+export async function appendRow(sheetName: string, values: any[]) {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${sheetName}!A1:Z`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [values],
+    },
+  });
+}
+
+/**
+ * Busca una fila por valor exacto en una columna.
+ * Devuelve headers (fila 1), row (fila encontrada), y rowNumber (1-indexed en Sheets).
+ */
+export async function findRowByColumn(
+  sheetName: string,
+  columnName: string,
+  value: string,
+  range = "A1:Z"
+) {
+  const values = await getSheetValues(sheetName, range);
+
+  if (!values || values.length < 1) {
+    return { headers: [], row: null as any, rowNumber: null as any };
+  }
+
+  const headers = (values[0] || []).map((h: any) => String(h || "").trim());
+  const rows = values.slice(1);
+
+  const idx = headers.findIndex((h) => h === columnName);
+  if (idx === -1) {
+    throw new Error(`${sheetName} missing column: ${columnName}`);
+  }
+
+  const target = String(value || "").trim();
+  let foundIndex = -1;
+
+  for (let i = 0; i < rows.length; i++) {
+    const cell = String(rows[i]?.[idx] ?? "").trim();
+    if (cell === target) {
+      foundIndex = i;
+      break;
+    }
+  }
+
+  if (foundIndex === -1) {
+    return { headers, row: null, rowNumber: null };
+  }
+
+  // rowNumber en Sheets: headers=1, rows start at 2, +foundIndex
+  const rowNumber = 2 + foundIndex;
+  return { headers, row: rows[foundIndex], rowNumber };
+}
+
+async function updateRowByNumber(sheetName: string, rowNumber: number, values: any[]) {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  // Actualiza A..Z de esa fila (según la longitud de values)
+  const startCol = "A";
+  const endCol = String.fromCharCode("A".charCodeAt(0) + Math.max(values.length - 1, 0));
+  const range = `${sheetName}!${startCol}${rowNumber}:${endCol}${rowNumber}`;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+}
+
+/**
+ * UPSERT por order_id:
+ * - Si existe: actualiza esa fila respetando headers
+ * - Si no: inserta una nueva fila respetando headers
+ */
+export async function upsertByOrderId(
+  sheetName: string,
+  orderId: string,
+  data: Record<string, any>,
+  range = "A1:Z"
+) {
+  const found = await findRowByColumn(sheetName, "order_id", orderId, range);
+
+  if (!found.headers.length) {
+    throw new Error(`${sheetName} has no headers`);
+  }
+
+  const headers = found.headers;
+  const rowValues = headers.map((h) => {
+    const v = data[h];
+    return v === undefined || v === null ? "" : String(v);
+  });
+
+  if (found.rowNumber) {
+    await updateRowByNumber(sheetName, found.rowNumber, rowValues);
+    return { action: "updated", rowNumber: found.rowNumber };
+  } else {
+    await appendRow(sheetName, rowValues);
+    return { action: "inserted" };
+  }
 }
